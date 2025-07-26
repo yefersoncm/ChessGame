@@ -8,7 +8,7 @@ import java.util.regex.Pattern;
 public class Board {
     private Piece[][] squares;
     private Piece.PieceColor currentPlayerTurn;
-    private Random random; // For AI's random move selection
+    private Random random;
 
     private static final Pattern MOVE_NOTATION_PATTERN = Pattern.compile("^[a-h][1-8][a-h][1-8]$");
 
@@ -16,7 +16,7 @@ public class Board {
         squares = new Piece[8][8];
         setupInitialBoard();
         currentPlayerTurn = Piece.PieceColor.WHITE;
-        random = new Random(); // Initialize Random
+        random = new Random();
     }
 
     private void setupInitialBoard() {
@@ -87,9 +87,7 @@ public class Board {
         return new int[]{startRow, startCol, endRow, endCol};
     }
 
-    // This method now includes general and piece-specific validation
     public boolean movePiece(int startRow, int startCol, int endRow, int endCol) {
-        // Basic bounds check (already done in parseNotation, but good to keep for direct calls)
         if (startRow < 0 || startRow >= 8 || startCol < 0 || startCol >= 8 ||
                 endRow < 0 || endRow >= 8 || endCol < 0 || endCol >= 8) {
             System.out.println("Invalid move: Internal coordinates out of board bounds.");
@@ -114,12 +112,11 @@ public class Board {
             return false;
         }
 
-        // --- NEW: Piece-specific movement rule validation ---
+        // --- Now calling isValidPieceMove which includes obstruction checks ---
         if (!isValidPieceMove(startRow, startCol, endRow, endCol)) {
-            System.out.println("Invalid move: This piece cannot move to that square according to its rules.");
+            System.out.println("Invalid move: This piece cannot move to that square according to its rules or path is blocked.");
             return false;
         }
-        // --- END NEW ---
 
         squares[endRow][endCol] = pieceToMove;
         squares[startRow][startCol] = null;
@@ -130,11 +127,36 @@ public class Board {
     }
 
     /**
-     * --- NEW METHOD: Basic Piece-Specific Movement Validation ---
-     * This is a simplified version. It checks basic movement patterns but NOT:
-     * - Obstructions for sliding pieces (Rook, Bishop, Queen)
-     * - Check/Checkmate rules
-     * - Castling, En Passant, Promotion rules
+     * Checks if the path between a sliding piece's start and end squares is clear.
+     * This method assumes the move is geometrically valid for a sliding piece.
+     * @param startRow Starting row.
+     * @param startCol Starting column.
+     * @param endRow Ending row.
+     * @param endCol Ending column.
+     * @return true if the path is clear, false if an obstruction is found.
+     */
+    private boolean isPathClear(int startRow, int startCol, int endRow, int endCol) {
+        int rowDir = Integer.compare(endRow, startRow); // -1, 0, or 1
+        int colDir = Integer.compare(endCol, startCol); // -1, 0, or 1
+
+        int currentRow = startRow + rowDir;
+        int currentCol = startCol + colDir;
+
+        // Iterate through all intermediate squares until just before the end square
+        while (currentRow != endRow || currentCol != endCol) {
+            if (squares[currentRow][currentCol] != null) {
+                return false; // Obstruction found
+            }
+            currentRow += rowDir;
+            currentCol += colDir;
+        }
+        return true; // Path is clear
+    }
+
+    /**
+     * Checks if a move is geometrically valid for a specific piece type,
+     * including path obstructions for sliding pieces.
+     * Does NOT check for putting own king in check.
      */
     private boolean isValidPieceMove(int startRow, int startCol, int endRow, int endCol) {
         Piece piece = squares[startRow][startCol];
@@ -142,35 +164,31 @@ public class Board {
 
         int rowDiff = Math.abs(endRow - startRow);
         int colDiff = Math.abs(endCol - startCol);
-        int rowDir = Integer.compare(endRow, startRow); // -1, 0, or 1
-        int colDir = Integer.compare(endCol, startCol); // -1, 0, or 1
+        int rowDir = Integer.compare(endRow, startRow);
+        int colDir = Integer.compare(endCol, startCol);
 
         switch (piece.getType()) {
             case PAWN:
                 // Pawns move differently based on color and capture
                 if (piece.getColor() == Piece.PieceColor.WHITE) {
-                    if (startRow == endRow) { // Same row (sideways) - not allowed
-                        return false;
-                    }
-                    if (colDiff == 0) { // Straight move
+                    if (startCol == endCol) { // Straight move (no capture)
+                        if (squares[endRow][endCol] != null) return false; // Cannot capture straight
                         if (rowDir == -1) { // Moving forward
-                            if (rowDiff == 1 && squares[endRow][endCol] == null) return true; // 1 square forward
-                            if (rowDiff == 2 && startRow == 6 && squares[endRow][endCol] == null && squares[startRow-1][startCol] == null) return true; // 2 squares on first move
+                            if (rowDiff == 1) return true; // 1 square forward
+                            if (rowDiff == 2 && startRow == 6 && squares[startRow-1][startCol] == null) return true; // 2 squares on first move
                         }
                     } else if (colDiff == 1) { // Diagonal move (capture)
-                        if (rowDiff == 1 && rowDir == -1 && squares[endRow][endCol] != null) return true; // Diagonal capture
+                        if (rowDiff == 1 && rowDir == -1 && squares[endRow][endCol] != null) return true; // Diagonal capture (must capture)
                     }
                 } else { // Black pawn
-                    if (startRow == endRow) { // Same row (sideways) - not allowed
-                        return false;
-                    }
-                    if (colDiff == 0) { // Straight move
+                    if (startCol == endCol) { // Straight move (no capture)
+                        if (squares[endRow][endCol] != null) return false; // Cannot capture straight
                         if (rowDir == 1) { // Moving forward
-                            if (rowDiff == 1 && squares[endRow][endCol] == null) return true; // 1 square forward
-                            if (rowDiff == 2 && startRow == 1 && squares[endRow][endCol] == null && squares[startRow+1][startCol] == null) return true; // 2 squares on first move
+                            if (rowDiff == 1) return true; // 1 square forward
+                            if (rowDiff == 2 && startRow == 1 && squares[startRow+1][startCol] == null) return true; // 2 squares on first move
                         }
                     } else if (colDiff == 1) { // Diagonal move (capture)
-                        if (rowDiff == 1 && rowDir == 1 && squares[endRow][endCol] != null) return true; // Diagonal capture
+                        if (rowDiff == 1 && rowDir == 1 && squares[endRow][endCol] != null) return true; // Diagonal capture (must capture)
                     }
                 }
                 return false; // All other pawn moves are invalid
@@ -182,43 +200,33 @@ public class Board {
             case BISHOP:
                 // Diagonal: abs(rowDiff) == abs(colDiff)
                 if (rowDiff == colDiff && rowDiff > 0) {
-                    // This simple isValidPieceMove doesn't check obstructions, just geometry
-                    return true;
+                    return isPathClear(startRow, startCol, endRow, endCol); // Check for obstructions
                 }
                 return false;
 
             case ROOK:
                 // Straight: either rowDiff is 0 (horizontal) or colDiff is 0 (vertical)
                 if ((rowDiff > 0 && colDiff == 0) || (colDiff > 0 && rowDiff == 0)) {
-                    // This simple isValidPieceMove doesn't check obstructions, just geometry
-                    return true;
+                    return isPathClear(startRow, startCol, endRow, endCol); // Check for obstructions
                 }
                 return false;
 
             case QUEEN:
                 // Combines Bishop and Rook moves
                 if ((rowDiff > 0 && colDiff == 0) || (colDiff > 0 && rowDiff == 0) || (rowDiff == colDiff && rowDiff > 0)) {
-                    // This simple isValidPieceMove doesn't check obstructions, just geometry
-                    return true;
+                    return isPathClear(startRow, startCol, endRow, endCol); // Check for obstructions
                 }
                 return false;
 
             case KING:
-                // 1 square in any direction
-                return rowDiff <= 1 && colDiff <= 1 && (rowDiff > 0 || colDiff > 0); // Must move at least one square
+                // 1 square in any direction (no obstructions to check for single step)
+                return rowDiff <= 1 && colDiff <= 1 && (rowDiff > 0 || colDiff > 0);
 
             default:
                 return false;
         }
     }
 
-    /**
-     * --- NEW METHOD: Generates a random legal move for the current player ---
-     * This method is the "AI" (very basic). It finds all possible moves allowed by isValidPieceMove
-     * and picks one randomly.
-     * Does NOT check for putting own king in check (that's future complexity).
-     * @return The algebraic notation of a random legal move, or null if no legal moves found.
-     */
     public String findRandomLegalMove() {
         List<String> legalMoves = new ArrayList<>();
 
@@ -229,16 +237,11 @@ public class Board {
                 if (piece != null && piece.getColor() == currentPlayerTurn) {
                     for (int endRow = 0; endRow < 8; endRow++) {
                         for (int endCol = 0; endCol < 8; endCol++) {
-                            // Temporary check to see if move is broadly valid for piece type
-                            // without actually performing it on the board (isValidPieceMove)
-                            // and if destination is empty or captureable (pieceAtEnd checks from movePiece)
-
-                            Piece pieceAtEnd = squares[endRow][endCol];
-                            boolean isTargetEmptyOrOpponent = (pieceAtEnd == null || pieceAtEnd.getColor() != currentPlayerTurn);
-
-                            // Check if the move is geometrically valid for the piece
-                            if (isTargetEmptyOrOpponent && isValidPieceMove(startRow, startCol, endRow, endCol)) {
-                                // Convert coordinates to algebraic notation for the move string
+                            // Check if the move is valid according to all rules implemented so far
+                            // This includes: general bounds, turn, not capturing own piece, and piece-specific geometry/obstructions
+                            // We temporarily 'test' the move using the same validation logic as movePiece()
+                            if (isValidMoveAttempt(startRow, startCol, endRow, endCol)) {
+                                // If it passes basic validations, add it
                                 char startFile = (char) ('a' + startCol);
                                 char startRank = (char) ('1' + (8 - startRow));
                                 char endFile = (char) ('a' + endCol);
@@ -252,14 +255,41 @@ public class Board {
         }
 
         if (legalMoves.isEmpty()) {
-            System.out.println("No legal moves found for " + currentPlayerTurn + " (may be checkmate or stalemate, or AI logic issue).");
-            return null; // No moves found
+            System.out.println("No legal moves found for " + currentPlayerTurn + ".");
+            return null;
         }
 
-        // Pick a random move from the list of legal moves
         String chosenMove = legalMoves.get(random.nextInt(legalMoves.size()));
-        System.out.println(currentPlayerTurn + " AI chooses move: " + chosenMove);
         return chosenMove;
+    }
+
+    /**
+     * Helper method to test if a move is broadly valid without actually executing it.
+     * This replicates initial checks from movePiece() and isValidPieceMove() for move generation.
+     * Important: Does NOT check for putting own king in check (that's complex and future scope).
+     */
+    private boolean isValidMoveAttempt(int startRow, int startCol, int endRow, int endCol) {
+        // Basic bounds check
+        if (startRow < 0 || startRow >= 8 || startCol < 0 || startCol >= 8 ||
+                endRow < 0 || endRow >= 8 || endCol < 0 || endCol >= 8) {
+            return false;
+        }
+
+        Piece pieceToMove = squares[startRow][startCol];
+
+        // Must be a piece at start, and must be the current player's piece
+        if (pieceToMove == null || pieceToMove.getColor() != currentPlayerTurn) {
+            return false;
+        }
+
+        // Cannot land on own piece
+        Piece pieceAtEnd = squares[endRow][endCol];
+        if (pieceAtEnd != null && pieceAtEnd.getColor() == currentPlayerTurn) {
+            return false;
+        }
+
+        // Check piece-specific movement rules and obstructions
+        return isValidPieceMove(startRow, startCol, endRow, endCol);
     }
 
 
