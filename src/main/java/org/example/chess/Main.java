@@ -1,34 +1,55 @@
 package org.example.chess;
 
-import java.util.Scanner; // Import the Scanner class for user input
+
+import java.util.Scanner;
 
 public class Main {
     public static void main(String[] args) {
-        Board board = new Board(); // Create a new board
-        Scanner scanner = new Scanner(System.in); // Create a Scanner object for reading input
+        Board board = new Board();
+        Scanner scanner = new Scanner(System.in);
 
-        System.out.println("--- Chess Game Started ---");
+        // Decide which player is human and which is AI
+        Piece.PieceColor humanPlayerColor = Piece.PieceColor.WHITE; // Human plays White
+        Piece.PieceColor aiPlayerColor = Piece.PieceColor.BLACK;    // AI plays Black
+
+        System.out.println("--- Chess Game Started: Human (" + humanPlayerColor + ") vs. AI (" + aiPlayerColor + ") ---");
         System.out.println("Enter moves in algebraic notation (e.g., 'e2e4'). Type 'exit' to quit.");
 
-        // Main game loop
-        while (true) { // Loop indefinitely until game ends or user exits
-            board.printBoard(); // Clear console and print the current board state
+        while (true) {
+            board.printBoard(); // Display the current board state
 
-            System.out.print(board.getCurrentPlayerTurn() + "'s turn. Enter your move: ");
-            String moveInput = scanner.nextLine(); // Read user input
+            if (board.getCurrentPlayerTurn() == humanPlayerColor) {
+                // Human's turn
+                System.out.print(humanPlayerColor + "'s turn. Enter your move: ");
+                String moveInput = scanner.nextLine();
 
-            if (moveInput.equalsIgnoreCase("exit") || moveInput.equalsIgnoreCase("quit")) {
-                System.out.println("Exiting game. Goodbye!");
-                break; // Exit the game loop
+                if (moveInput.equalsIgnoreCase("exit") || moveInput.equalsIgnoreCase("quit")) {
+                    System.out.println("Exiting game. Goodbye!");
+                    break;
+                }
+
+                board.move(moveInput); // Attempt human's move
+            } else {
+                // AI's turn
+                System.out.println(aiPlayerColor + "'s turn (AI). Thinking...");
+                try {
+                    Thread.sleep(1000); // Simulate "thinking" time for the AI
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    System.out.println("AI thinking interrupted.");
+                }
+
+                String aiMove = board.findRandomLegalMove(); // AI finds a random move
+                if (aiMove != null) {
+                    board.move(aiMove); // Execute AI's move
+                } else {
+                    // No legal moves for AI (e.g., checkmate/stalemate, though not fully detected yet)
+                    System.out.println("AI has no legal moves. Game over (for now).");
+                    break;
+                }
             }
-
-            // Attempt to make the move. The board.move() method handles validation and turn switching.
-            boolean moveSuccessful = board.move(moveInput);
-
-            // If move was not successful, the Board.move() method already prints an error.
-            // The loop will simply re-prompt the same player.
         }
 
-        scanner.close(); // Close the scanner to release system resources
+        scanner.close();
     }
 }
