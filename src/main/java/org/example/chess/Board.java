@@ -1,13 +1,18 @@
 package org.example.chess;
 
+import java.util.regex.Pattern; // Import for using regular expressions
+
 public class Board {
-    private Piece[][] squares; // A 8x8 array to hold Piece objects or null for empty squares
-    private Piece.PieceColor currentPlayerTurn; // Tracks whose turn it is
+    private Piece[][] squares;
+    private Piece.PieceColor currentPlayerTurn;
+
+    // --- NEW: Declare the Pattern for move notation validation ---
+    private static final Pattern MOVE_NOTATION_PATTERN = Pattern.compile("^[a-h][1-8][a-h][1-8]$");
 
     public Board() {
         squares = new Piece[8][8];
         setupInitialBoard();
-        currentPlayerTurn = Piece.PieceColor.WHITE; // White always starts the game
+        currentPlayerTurn = Piece.PieceColor.WHITE;
     }
 
     private void setupInitialBoard() {
@@ -38,7 +43,6 @@ public class Board {
         squares[7][7] = new Piece(Piece.PieceType.ROOK, Piece.PieceColor.WHITE);
     }
 
-    // Method to get a piece at a specific coordinate
     public Piece getPiece(int row, int col) {
         if (row < 0 || row >= 8 || col < 0 || col >= 8) {
             System.err.println("Error: Board coordinates out of bounds [" + row + "," + col + "]");
@@ -47,11 +51,54 @@ public class Board {
         return squares[row][col];
     }
 
-    // Method to move a piece with basic turn validation
+    public boolean move(String moveNotation) {
+        int[] coords = parseNotationToCoordinates(moveNotation);
+        if (coords == null) {
+            // Error message already printed by parseNotationToCoordinates
+            return false;
+        }
+        return movePiece(coords[0], coords[1], coords[2], coords[3]);
+    }
+
+    /**
+     * Parses a chess notation string (e.g., "e2e4") into board array coordinates.
+     * Includes regex validation for the string format.
+     *
+     * @param notation The algebraic notation string (e.g., "e2e4").
+     * @return An int array [startRow, startCol, endRow, endCol] or null if invalid format.
+     */
+    private int[] parseNotationToCoordinates(String notation) {
+        if (notation == null) {
+            return null;
+        }
+
+        // --- NEW: Use regex to validate the format ---
+        if (!MOVE_NOTATION_PATTERN.matcher(notation).matches()) {
+            System.out.println("Invalid move format: '" + notation + "'. Expected format like 'e2e4'.");
+            return null;
+        }
+        // --- END NEW ---
+
+        // The rest of the parsing logic, now that the format is guaranteed
+        char startFileChar = notation.charAt(0);
+        char startRankChar = notation.charAt(1);
+        char endFileChar = notation.charAt(2);
+        char endRankChar = notation.charAt(3);
+
+        int startCol = startFileChar - 'a'; // 'a' -> 0, 'b' -> 1, ..., 'h' -> 7
+        int startRow = 8 - Character.getNumericValue(startRankChar); // '1' -> 7, '2' -> 6, ..., '8' -> 0
+
+        int endCol = endFileChar - 'a';
+        int endRow = 8 - Character.getNumericValue(endRankChar);
+
+        return new int[]{startRow, startCol, endRow, endCol};
+    }
+
     public boolean movePiece(int startRow, int startCol, int endRow, int endCol) {
+        // Bounds check (already done in parseNotation, but good to keep for direct calls)
         if (startRow < 0 || startRow >= 8 || startCol < 0 || startCol >= 8 ||
                 endRow < 0 || endRow >= 8 || endCol < 0 || endCol >= 8) {
-            System.out.println("Invalid move: Coordinates are out of board bounds.");
+            System.out.println("Invalid move: Internal coordinates out of board bounds.");
             return false;
         }
 
@@ -78,7 +125,7 @@ public class Board {
         squares[endRow][endCol] = pieceToMove;
         squares[startRow][startCol] = null;
 
-        switchTurn(); // Switch the turn to the next player
+        switchTurn();
         System.out.println("Move successful! Now it's " + currentPlayerTurn + "'s turn.");
         return true;
     }
@@ -95,31 +142,23 @@ public class Board {
         return currentPlayerTurn;
     }
 
-    // *** NEW METHOD: clearConsole() ***
     private void clearConsole() {
         try {
-            // For most Unix-like systems (Linux, macOS) and modern Windows terminals (PowerShell, Git Bash, VS Code terminal)
             final String os = System.getProperty("os.name");
             if (os.contains("Windows")) {
-                // For older Windows Command Prompt, might need "cls" via new ProcessBuilder
-                // This is generally less preferred due to creating a new process
                 new ProcessBuilder("cmd", "/c", "cls").inheritIO().start().waitFor();
             } else {
-                // ANSI escape codes: ESC[H (cursor home) ESC[2J (clear screen)
                 System.out.print("\033[H\033[2J");
-                System.out.flush(); // Ensure output is written immediately
+                System.out.flush();
             }
         } catch (final Exception e) {
-            // Fallback for environments that don't support ANSI or ProcessBuilder commands reliably
-            // This just prints many newlines to push content off-screen
             for (int i = 0; i < 50; ++i) System.out.println();
             System.out.println("Warning: Console clear failed. Printing newlines instead.");
         }
     }
 
-    // *** MODIFIED METHOD: printBoard() ***
-    public void printBoard() { // No @Override here
-        clearConsole(); // Clear the console before printing the new board state
+    public void printBoard() {
+        clearConsole();
 
         System.out.println("   A   B   C   D   E   F   G   H");
         System.out.println(" +---+---+---+---+---+---+---+---+");
