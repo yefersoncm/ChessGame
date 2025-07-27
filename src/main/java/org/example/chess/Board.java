@@ -3,6 +3,7 @@ package org.example.chess; // Using the new package name
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class Board {
@@ -11,6 +12,12 @@ public class Board {
     private Random random;
 
     private static final Pattern FULL_MOVE_NOTATION_PATTERN = Pattern.compile("^[a-h][1-8][a-h][1-8]$");
+    // --- NEW PATTERNS for Disambiguated Moves ---
+    // Piece + StartFile + EndFileRank (e.g., Nbd7)
+    private static final Pattern DISAMBIGUATED_FILE_MOVE_PATTERN = Pattern.compile("^[NBRQK][a-h][a-h][1-8]$");
+    // Piece + StartRank + EndFileRank (e.g., N1d7)
+    private static final Pattern DISAMBIGUATED_RANK_MOVE_PATTERN = Pattern.compile("^[NBRQK][1-8][a-h][1-8]$");
+    // --- END NEW PATTERNS ---
     private static final Pattern SHORTENED_PIECE_MOVE_PATTERN = Pattern.compile("^[NBRQK][a-h][1-8]$");
 
 
@@ -65,11 +72,23 @@ public class Board {
         return movePiece(coords[0], coords[1], coords[2], coords[3]);
     }
 
+    /**
+     * Parses various forms of algebraic notation into board array coordinates.
+     * Order of parsing attempts is important:
+     * 1. Full 'fileRankFileRank' (e.g., "e2e4")
+     * 2. Disambiguated moves (e.g., "Nbd7", "N1d7")
+     * 3. Shortened Piece Moves (e.g., "Nf3")
+     * (Future: Pawn moves like "e4", captures with 'x', castling)
+     *
+     * @param notation The algebraic notation string.
+     * @return An int array [startRow, startCol, endRow, endCol] or null if invalid or ambiguous.
+     */
     private int[] parseAlgebraicNotation(String notation) {
         if (notation == null || notation.isEmpty()) {
             return null;
         }
 
+        // 1. Try to parse as full 'fileRankFileRank' (e.g., "e2e4", "a1h8")
         if (FULL_MOVE_NOTATION_PATTERN.matcher(notation).matches()) {
             char startFileChar = notation.charAt(0);
             char startRankChar = notation.charAt(1);
@@ -83,6 +102,72 @@ public class Board {
             return new int[]{startRow, startCol, endRow, endCol};
         }
 
+        // --- NEW: 2. Try to parse as Disambiguated Piece Move ---
+        Matcher fileDisambiguatorMatcher = DISAMBIGUATED_FILE_MOVE_PATTERN.matcher(notation);
+        Matcher rankDisambiguatorMatcher = DISAMBIGUATED_RANK_MOVE_PATTERN.matcher(notation);
+
+        if (fileDisambiguatorMatcher.matches() || rankDisambiguatorMatcher.matches()) {
+            char pieceChar = notation.charAt(0);
+            char disambiguatorChar = notation.charAt(1); // 'b' for Nbd7, '1' for N1d7
+            char endFileChar = notation.charAt(2);
+            char endRankChar = notation.charAt(3);
+
+            Piece.PieceType targetPieceType;
+            switch (pieceChar) {
+                case 'N': targetPieceType = Piece.PieceType.KNIGHT; break;
+                case 'B': targetPieceType = Piece.PieceType.BISHOP; break;
+                case 'R': targetPieceType = Piece.PieceType.ROOK; break;
+                case 'Q': targetPieceType = Piece.PieceType.QUEEN; break;
+                case 'K': targetPieceType = Piece.PieceType.KING; break;
+                default: return null; // Should not happen with regex
+            }
+
+            int endCol = endFileChar - 'a';
+            int endRow = 8 - Character.getNumericValue(endRankChar);
+
+            List<int[]> candidateSources = new ArrayList<>();
+
+            for (int sr = 0; sr < 8; sr++) {
+                for (int sc = 0; sc < 8; sc++) {
+                    Piece piece = squares[sr][sc];
+                    if (piece != null && piece.getColor() == currentPlayerTurn && piece.getType() == targetPieceType) {
+                        boolean disambiguatorMatches = false;
+                        if (Character.isLetter(disambiguatorChar)) { // Disambiguation by file (e.g., 'b' in Nbd7)
+                            if ((disambiguatorChar - 'a') == sc) {
+                                disambiguatorMatches = true;
+                            }
+                        } else if (Character.isDigit(disambiguatorChar)) { // Disambiguation by rank (e.g., '1' in N1d7)
+                            if ((8 - Character.getNumericValue(disambiguatorChar)) == sr) {
+                                disambiguatorMatches = true;
+                            }
+                        }
+
+                        if (disambiguatorMatches) {
+                            if (isValidMoveAttempt(sr, sc, endRow, endCol)) {
+                                candidateSources.add(new int[]{sr, sc});
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (candidateSources.isEmpty()) {
+                System.out.println("Invalid move: No " + targetPieceType + " from " + disambiguatorChar + " can legally move to " + endFileChar + endRankChar + ".");
+                return null;
+            } else if (candidateSources.size() > 1) {
+                // This indicates a problem: even with disambiguation, it's ambiguous.
+                // This shouldn't happen with correctly formed FIDE notation, but good to catch.
+                System.out.println("Invalid move: Still ambiguous " + targetPieceType + " move to " + endFileChar + endRankChar + " even with disambiguator " + disambiguatorChar + ".");
+                return null;
+            } else {
+                int[] source = candidateSources.get(0);
+                return new int[]{source[0], source[1], endRow, endCol};
+            }
+        }
+        // --- END NEW: Disambiguated Moves ---
+
+
+        // 3. Try to parse as shortened Piece Move (e.g., "Nf3", "Bg5")
         if (SHORTENED_PIECE_MOVE_PATTERN.matcher(notation).matches()) {
             char pieceChar = notation.charAt(0);
             char endFileChar = notation.charAt(1);
@@ -95,9 +180,7 @@ public class Board {
                 case 'R': targetPieceType = Piece.PieceType.ROOK; break;
                 case 'Q': targetPieceType = Piece.PieceType.QUEEN; break;
                 case 'K': targetPieceType = Piece.PieceType.KING; break;
-                default:
-                    System.out.println("Invalid piece character in shortened move: " + pieceChar);
-                    return null;
+                default: return null; // Should not happen with regex
             }
 
             int endCol = endFileChar - 'a';
@@ -109,7 +192,6 @@ public class Board {
                 for (int sc = 0; sc < 8; sc++) {
                     Piece piece = squares[sr][sc];
                     if (piece != null && piece.getColor() == currentPlayerTurn && piece.getType() == targetPieceType) {
-                        // isValidMoveAttempt now correctly considers all rules, including self-check
                         if (isValidMoveAttempt(sr, sc, endRow, endCol)) {
                             candidateSources.add(new int[]{sr, sc});
                         }
@@ -121,15 +203,18 @@ public class Board {
                 System.out.println("Invalid move: No " + targetPieceType + " can legally move to " + endFileChar + endRankChar + ".");
                 return null;
             } else if (candidateSources.size() > 1) {
-                System.out.println("Invalid move: Ambiguous " + targetPieceType + " move to " + endFileChar + endRankChar + ". Please specify starting file/rank (e.g., 'Nbd7' or 'N1d7').");
-                return null;
+                // --- MODIFIED ERROR MESSAGE for Ambiguity ---
+                System.out.println("Invalid move: Ambiguous " + targetPieceType + " move to " + endFileChar + endRankChar + ". Please specify starting file or rank (e.g., 'Nbd7' or 'N1d7').");
+                return null; // Ambiguous move
             } else {
                 int[] source = candidateSources.get(0);
                 return new int[]{source[0], source[1], endRow, endCol};
             }
         }
 
-        System.out.println("Invalid move format: '" + notation + "'. Please use 'e2e4' or 'Nf3' format.");
+        // --- Future: Add other parsing formats here (e.g., pawn moves like "e4", captures with 'x', castling) ---
+
+        System.out.println("Invalid move format: '" + notation + "'. Please use 'e2e4', 'Nf3', 'Nbd7', or 'N1d7' format.");
         return null;
     }
 
@@ -158,15 +243,11 @@ public class Board {
             return false;
         }
 
-        // --- All comprehensive checks are now inside isValidMoveAttempt ---
         if (!isValidMoveAttempt(startRow, startCol, endRow, endCol)) {
             // Error message already printed by isValidMoveAttempt
             return false;
         }
 
-        // If isValidMoveAttempt returns true, the move is fully legal and can be executed
-        // Note: isValidMoveAttempt already checks turn and piece ownership, but those are quick
-        // front-line checks in movePiece too, so keeping them here for clarity.
         squares[endRow][endCol] = pieceToMove;
         squares[startRow][startCol] = null;
 
@@ -255,11 +336,6 @@ public class Board {
         }
     }
 
-    /**
-     * Finds the King's position for a given color.
-     * @param kingColor The color of the King to find.
-     * @return An int array {row, col} of the King's position, or null if not found (should not happen in a valid game).
-     */
     private int[] findKing(Piece.PieceColor kingColor) {
         for (int r = 0; r < 8; r++) {
             for (int c = 0; c < 8; c++) {
@@ -269,22 +345,13 @@ public class Board {
                 }
             }
         }
-        return null; // King not found (this would indicate an error in game state or missing setup)
+        return null;
     }
 
-    /**
-     * Determines if the King of a given color is currently in check.
-     * This method iterates through all opponent pieces and checks if any can attack the King's square.
-     * @param kingColor The color of the King to check.
-     * @return true if the King is in check, false otherwise.
-     */
     public boolean isKingInCheck(Piece.PieceColor kingColor) {
         int[] kingPos = findKing(kingColor);
         if (kingPos == null) {
-            // This case should ideally be handled at a higher level (game initialization check)
-            // or by throwing a more specific exception in a production game.
-            // For now, print error and assume no check if king is missing.
-            System.err.println("Error: King of color " + kingColor + " not found on board. Cannot check for check.");
+            System.err.println("Error: King of color " + kingColor + " not found on board.");
             return false;
         }
 
@@ -292,31 +359,24 @@ public class Board {
         int kingCol = kingPos[1];
         Piece.PieceColor opponentColor = (kingColor == Piece.PieceColor.WHITE) ? Piece.PieceColor.BLACK : Piece.PieceColor.WHITE;
 
-        // Iterate through ALL squares to find opponent's pieces
         for (int r = 0; r < 8; r++) {
             for (int c = 0; c < 8; c++) {
                 Piece opponentPiece = squares[r][c];
                 if (opponentPiece != null && opponentPiece.getColor() == opponentColor) {
-                    // Temporarily remove the King from its square to check for attacks
-                    // This is important because isValidPieceMove might treat a piece at endRow/endCol differently
-                    // (e.g., pawn capture requires an opponent piece, but King is a friendly piece)
-                    Piece tempKing = squares[kingRow][kingCol];
-                    squares[kingRow][kingCol] = null; // Temporarily make King's square empty
+                    Piece tempKing = squares[kingRow][kingCol]; // Store King
+                    squares[kingRow][kingCol] = null; // Temporarily remove King
 
-                    // Check if the opponentPiece can geometrically attack the King's square
-                    // We call isValidPieceMove, which checks geometric rules and path obstructions.
-                    // The 'end' square for this check is the King's position.
                     boolean canAttackKing = isValidPieceMove(r, c, kingRow, kingCol);
 
-                    squares[kingRow][kingCol] = tempKing; // Restore the King immediately
+                    squares[kingRow][kingCol] = tempKing; // Restore King
 
                     if (canAttackKing) {
-                        return true; // Opponent piece attacks the King
+                        return true;
                     }
                 }
             }
         }
-        return false; // King is not in check
+        return false;
     }
 
     public String findRandomLegalMove() {
@@ -329,16 +389,12 @@ public class Board {
                 if (piece != null && piece.getColor() == currentPlayerTurn) {
                     for (int endRow = 0; endRow < 8; endRow++) {
                         for (int endCol = 0; endCol < 8; endCol++) {
-                            // isValidMoveAttempt now includes the crucial self-check validation
-                            // It will return true ONLY if the move is fully legal (geometry, no obstructions,
-                            // no landing on own piece, AND no putting own King in check).
+                            // isValidMoveAttempt now includes all validations (geometry, obstructions, self-check)
                             if (isValidMoveAttempt(startRow, startCol, endRow, endCol)) {
                                 char startFile = (char) ('a' + startCol);
-                                // --- FIX: Corrected Rank Conversion for Output ---
-                                char startRank = (char) ('1' + (7 - startRow));
+                                char startRank = (char) ('1' + (7 - startRow)); // CORRECTED RANK CONVERSION
                                 char endFile = (char) ('a' + endCol);
-                                char endRank = (char) ('1' + (7 - endRow));
-                                // --- END FIX ---
+                                char endRank = (char) ('1' + (7 - endRow));     // CORRECTED RANK CONVERSION
                                 legalMoves.add("" + startFile + startRank + endFile + endRank);
                             }
                         }
@@ -362,7 +418,6 @@ public class Board {
      * This replicates initial checks from movePiece(), isValidPieceMove(), AND now checks for self-check.
      */
     private boolean isValidMoveAttempt(int startRow, int startCol, int endRow, int endCol) {
-        // --- Initial general checks (copied from movePiece, as they are front-line checks) ---
         if (startRow < 0 || startRow >= 8 || startCol < 0 || startCol >= 8 ||
                 endRow < 0 || endRow >= 8 || endCol < 0 || endCol >= 8) {
             return false;
@@ -378,38 +433,30 @@ public class Board {
         if (pieceAtEnd != null && pieceAtEnd.getColor() == currentPlayerTurn) {
             return false;
         }
-        // --- END Initial general checks ---
 
-        // --- Geometric and Obstruction check ---
         if (!isValidPieceMove(startRow, startCol, endRow, endCol)) {
             return false;
         }
-        // --- END Geometric and Obstruction check ---
 
+        // --- Self-Check Validation Logic (CRUCIAL) ---
+        Piece originalStartPiece = squares[startRow][startCol];
+        Piece originalEndPiece = squares[endRow][endCol];
 
-        // --- NEW CRUCIAL STEP: Check for self-check after the potential move ---
-        // 1. Temporarily make the move on the board
-        Piece originalStartPiece = squares[startRow][startCol]; // Should be pieceToMove
-        Piece originalEndPiece = squares[endRow][endCol];       // Could be null or opponent piece
-
-        squares[endRow][endCol] = originalStartPiece; // Move piece
+        squares[endRow][endCol] = originalStartPiece; // Simulate move
         squares[startRow][startCol] = null;           // Clear old square
 
-        // 2. Check if the current player's King is in check AFTER this temporary move
         boolean isKingInCheckAfterMove = isKingInCheck(currentPlayerTurn);
 
-        // 3. Undo the temporary move to restore the board state
-        squares[startRow][startCol] = originalStartPiece; // Put piece back to start
-        squares[endRow][endCol] = originalEndPiece;       // Put captured piece back or clear square
+        squares[startRow][startCol] = originalStartPiece; // Undo move
+        squares[endRow][endCol] = originalEndPiece;       // Restore captured piece or clear square
 
-        // 4. If the King IS in check after the move, then this move is NOT valid
         if (isKingInCheckAfterMove) {
-            // Uncomment next line for debugging if needed:
-            // System.out.println("Debug: Move " + (char)('a'+startCol)+(8-startRow) + (char)('a'+endCol)+(8-endRow) + " results in self-check.");
-            return false; // Move is illegal because it puts/leaves own King in check
+            // Uncomment for debugging if needed:
+            // System.out.println("Debug: Move " + (char)('a'+startCol)+(char)('1'+(7-startRow)) + (char)('a'+endCol)+(char)('1'+(7-endRow)) + " results in self-check.");
+            return false;
         }
 
-        return true; // Move is valid (passed all checks)
+        return true; // Move is fully valid
     }
 
 
@@ -447,16 +494,12 @@ public class Board {
         System.out.println(" +---+---+---+---+---+---+---+---+");
 
         for (int r = 0; r < 8; r++) {
-            // --- FIX: Corrected Rank Conversion for Printing ---
-            System.out.print((char)('1' + (7 - r)) + "|"); // Example: r=0 -> '8', r=7 -> '1'
-            // --- END FIX ---
+            System.out.print((char)('1' + (7 - r)) + "|"); // CORRECTED RANK CONVERSION
             for (int c = 0; c < 8; c++) {
                 Piece piece = squares[r][c];
                 System.out.print(" " + (piece != null ? piece.getAsciiChar() : " ") + " |");
             }
-            // --- FIX: Corrected Rank Conversion for Printing ---
-            System.out.println((char)('1' + (7 - r)));
-            // --- END FIX ---
+            System.out.println((char)('1' + (7 - r))); // CORRECTED RANK CONVERSION
             System.out.println(" +---+---+---+---+---+---+---+---+");
         }
         System.out.println("   A   B   C   D   E   F   G   H");
