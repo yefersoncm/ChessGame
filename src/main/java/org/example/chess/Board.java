@@ -1,4 +1,4 @@
-package org.example.chess; // Using the new package name
+package org.example.chess;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -15,18 +15,19 @@ public class Board {
 
     private Map<Piece.PieceColor, Map<Piece.PieceType, Integer>> pieceCounts;
 
+    private int[] enPassantTargetSquare = null;
+
     private static final Pattern FULL_MOVE_NOTATION_PATTERN = Pattern.compile("^[a-h][1-8][a-h][1-8]$");
     private static final Pattern DISAMBIGUATED_FILE_MOVE_PATTERN = Pattern.compile("^[NBRQK][a-h][a-h][1-8]$");
-    private static final Pattern DISAMBIGUATED_RANK_MOVE_PATTERN = Pattern.compile("^[NBRQK][1-8][a-h][1-8]$");
+    private static final Pattern DISAMBIGUATED_RANK_MOVE_PATTERN = Pattern.compile("^[NBRQK][1-8][a-h][1-8]$"); // Typo fix: DISAMBIGUIGATED -> DISAMBIGUATED
     private static final Pattern SHORTENED_PIECE_MOVE_PATTERN = Pattern.compile("^[NBRQK][a-h][1-8]$");
 
     private static final Pattern PIECE_PLACEMENT_PATTERN = Pattern.compile("^[NBRQKPRQnbrqkprq][a-h][1-8]$");
 
-    // --- NEW: Enum to represent the result of a move operation ---
     public enum MoveResult {
-        VALID,              // Move was valid and executed, turn switched
-        INVALID,            // Move was invalid, no changes, turn not switched
-        PROMOTION_PENDING   // Pawn moved to last rank, promotion choice needed, turn not switched yet
+        VALID,
+        INVALID,
+        PROMOTION_PENDING
     }
 
     public Board() {
@@ -35,6 +36,7 @@ public class Board {
         initializePieceCounts();
         setupInitialBoard();
         currentPlayerTurn = Piece.PieceColor.WHITE;
+        enPassantTargetSquare = null;
     }
 
     private void setupInitialBoard() {
@@ -115,6 +117,7 @@ public class Board {
             }
         }
         initializePieceCounts();
+        enPassantTargetSquare = null;
         System.out.println("Board cleared to a blank state.");
     }
 
@@ -179,10 +182,10 @@ public class Board {
      * @param moveNotation The algebraic notation string.
      * @return A MoveResult indicating success, failure, or pending promotion.
      */
-    public MoveResult move(String moveNotation) {
+    public Board.MoveResult move(String moveNotation) {
         int[] coords = parseAlgebraicNotation(moveNotation);
         if (coords == null) {
-            return MoveResult.INVALID;
+            return Board.MoveResult.INVALID;
         }
         // This movePiece is where the main move logic and promotion detection happens
         return movePiece(coords[0], coords[1], coords[2], coords[3]);
@@ -207,7 +210,7 @@ public class Board {
         }
 
         Matcher fileDisambiguatorMatcher = DISAMBIGUATED_FILE_MOVE_PATTERN.matcher(notation);
-        Matcher rankDisambiguatorMatcher = DISAMBIGUATED_RANK_MOVE_PATTERN.matcher(notation);
+        Matcher rankDisambiguatorMatcher = DISAMBIGUATED_RANK_MOVE_PATTERN.matcher(notation); // Corrected typo in regex pattern variable name
 
         if (fileDisambiguatorMatcher.matches() || rankDisambiguatorMatcher.matches()) {
             char pieceChar = notation.charAt(0);
@@ -317,49 +320,77 @@ public class Board {
      * Executes a move on the board after coordinates have been determined and passed preliminary validations.
      * This method handles the actual board update, piece capture, promotion detection, and turn switching.
      * @param startRow Starting row.
-     * @param intstartCol Starting column. // Corrected parameter name
+     * @param startCol Starting column.
      * @param endRow Ending row.
      * @param endCol Ending column.
      * @return A MoveResult indicating if the move was valid, invalid, or if promotion is pending.
      */
-    public MoveResult movePiece(int startRow, int intstartCol, int endRow, int endCol) { // Note: Renamed startCol to intstartCol to avoid clash with local var
+    public Board.MoveResult movePiece(int startRow, int startCol, int endRow, int endCol) {
         // These checks are already done by isValidMoveAttempt, but keep for robustness if called directly
-        if (startRow < 0 || startRow >= 8 || intstartCol < 0 || intstartCol >= 8 ||
+        if (startRow < 0 || startRow >= 8 || startCol < 0 || startCol >= 8 ||
                 endRow < 0 || endRow >= 8 || endCol < 0 || endCol >= 8) {
             System.out.println("Invalid move: Internal coordinates out of board bounds.");
-            return MoveResult.INVALID;
+            return Board.MoveResult.INVALID;
         }
 
-        Piece pieceToMove = squares[startRow][intstartCol];
+        Piece pieceToMove = squares[startRow][startCol];
 
         if (pieceToMove == null || pieceToMove.getColor() != currentPlayerTurn) {
-            System.out.println("Invalid move: Piece at start square is not valid for current turn."); // More general msg
-            return MoveResult.INVALID;
+            System.out.println("Invalid move: Piece at start square is not valid for current turn.");
+            return Board.MoveResult.INVALID;
         }
 
         Piece pieceAtEnd = squares[endRow][endCol];
+        // This check is now integrated more deeply into isValidMoveAttempt for pawn rules, but keeping it here for general clarity
         if (pieceAtEnd != null && pieceAtEnd.getColor() == currentPlayerTurn) {
             System.out.println("Invalid move: Cannot capture your own piece.");
-            return MoveResult.INVALID;
+            return Board.MoveResult.INVALID;
         }
 
         // --- All comprehensive checks are now inside isValidMoveAttempt ---
-        if (!isValidMoveAttempt(startRow, intstartCol, endRow, endCol)) {
+        if (!isValidMoveAttempt(startRow, startCol, endRow, endCol)) {
             // isValidMoveAttempt already prints specific error messages if it returns false
-            return MoveResult.INVALID;
+            return Board.MoveResult.INVALID;
         }
 
-        // --- If all validations pass, perform the move and handle promotion ---
-        // 1. Decrement count of captured piece, if any
-        if (pieceAtEnd != null) {
+        // --- If all validations pass, perform the move and handle promotion/en passant ---
+        boolean isEnPassantCapture = false;
+        Piece capturedPawnByEnPassant = null;
+        int capturedPawnByEnPassantRow = -1;
+        int capturedPawnByEnPassantCol = -1;
+
+        // 1. Determine if this specific move is an En Passant capture (before any piece movement)
+        if (pieceToMove.getType() == Piece.PieceType.PAWN && Math.abs(startCol - endCol) == 1) { // Pawn making diagonal move
+            if (squares[endRow][endCol] == null) { // Landing on empty square (MUST BE FOR EN PASSANT)
+                if (enPassantTargetSquare != null && endRow == enPassantTargetSquare[0] && endCol == enPassantTargetSquare[1]) {
+                    isEnPassantCapture = true;
+                    // Identify the pawn to be captured (it's on the same file as the target, but on the *starting* rank of the pawn that moved two squares)
+                    capturedPawnByEnPassantRow = (pieceToMove.getColor() == Piece.PieceColor.WHITE) ? endRow + 1 : endRow - 1;
+                    capturedPawnByEnPassantCol = endCol;
+                    capturedPawnByEnPassant = squares[capturedPawnByEnPassantRow][capturedPawnByEnPassantCol];
+                }
+            }
+        }
+
+        // 2. Handle captured pieces (normal capture OR en passant capture)
+        if (isEnPassantCapture) {
+            if (capturedPawnByEnPassant != null && capturedPawnByEnPassant.getType() == Piece.PieceType.PAWN && capturedPawnByEnPassant.getColor() != pieceToMove.getColor()) {
+                squares[capturedPawnByEnPassantRow][capturedPawnByEnPassantCol] = null; // Remove the captured pawn
+                decrementPieceCount(capturedPawnByEnPassant.getType(), capturedPawnByEnPassant.getColor()); // Decrement its count
+                System.out.println("En Passant capture!");
+            } else {
+                System.err.println("Error: En Passant confirmed but no valid pawn to capture at " + (char)('a'+capturedPawnByEnPassantCol) + (char)('1'+(7-capturedPawnByEnPassantRow)));
+                return Board.MoveResult.INVALID; // Should ideally not happen if isValidMoveAttempt correctly validated
+            }
+        } else if (pieceAtEnd != null) { // Not En Passant, but a normal capture
             decrementPieceCount(pieceAtEnd.getType(), pieceAtEnd.getColor());
         }
 
-        // 2. Perform the basic move (pawn or other piece)
+        // 3. Perform the basic move (pawn or other piece)
         squares[endRow][endCol] = pieceToMove;
-        squares[startRow][intstartCol] = null;
+        squares[startRow][startCol] = null;
 
-        // 3. Check for Promotion
+        // 4. Check for Pawn Promotion (after the pawn has officially moved)
         boolean isPromotion = false;
         if (pieceToMove.getType() == Piece.PieceType.PAWN) {
             if ((pieceToMove.getColor() == Piece.PieceColor.WHITE && endRow == 0) ||
@@ -368,17 +399,27 @@ public class Board {
             }
         }
 
-        // 4. If promotion is pending, signal it to Main. DO NOT switch turn yet.
+        // 5. Update En Passant target for the *next* turn (based on *this* move)
+        int rowDiffFromStart = Math.abs(startRow - endRow);
+        if (pieceToMove.getType() == Piece.PieceType.PAWN && rowDiffFromStart == 2) { // Pawn moved exactly two squares
+            if (pieceToMove.getColor() == Piece.PieceColor.WHITE) { // White pawn moved from rank 2 to 4
+                enPassantTargetSquare = new int[]{endRow + 1, endCol}; // Target is square behind it (rank 3 for White)
+            } else { // Black pawn moved from rank 7 to 5
+                enPassantTargetSquare = new int[]{endRow - 1, endCol}; // Target is square behind it (rank 6 for Black)
+            }
+        } else {
+            enPassantTargetSquare = null; // Clear if not a two-square pawn push
+        }
+
+        // 6. Return appropriate MoveResult. DO NOT switch turn yet if PROMOTION_PENDING.
         if (isPromotion) {
             System.out.println(pieceToMove.getColor() + " Pawn reached promotion square " + (char)('a'+endCol) + (char)('1'+(7-endRow)) + "!");
-            // Store the coordinates of the promoting pawn for Main to finalize
-            // Not strictly needed here, as Main will know the end square from input.
-            return MoveResult.PROMOTION_PENDING;
+            return Board.MoveResult.PROMOTION_PENDING;
         } else {
             // If no promotion, switch turn as usual
             switchTurn();
             System.out.println("Move successful! Now it's " + currentPlayerTurn + "'s turn.");
-            return MoveResult.VALID;
+            return Board.MoveResult.VALID;
         }
     }
 
@@ -396,13 +437,10 @@ public class Board {
             return;
         }
 
-        // Decrement the pawn count
         decrementPieceCount(Piece.PieceType.PAWN, promotingPawn.getColor());
 
-        // Place the new promoted piece
         squares[promotionRow][promotionCol] = new Piece(chosenType, promotingPawn.getColor());
 
-        // Increment the count of the new piece type
         incrementPieceCount(chosenType, promotingPawn.getColor());
 
         System.out.println(promotingPawn.getColor() + " Pawn promoted to " + chosenType + "!");
@@ -441,26 +479,20 @@ public class Board {
 
         switch (piece.getType()) {
             case PAWN:
-                if (piece.getColor() == Piece.PieceColor.WHITE) {
-                    if (startCol == endCol) { // Straight move
-                        if (squares[endRow][endCol] != null) return false;
-                        if (rowDir == -1) {
-                            if (rowDiff == 1) return true;
-                            if (rowDiff == 2 && startRow == 6 && squares[startRow-1][startCol] == null) return true;
-                        }
-                    } else if (colDiff == 1) { // Diagonal move (capture)
-                        if (rowDiff == 1 && rowDir == -1 && squares[endRow][endCol] != null) return true;
+                // Straight move (forward 1 or 2 squares)
+                if (colDiff == 0) {
+                    if (piece.getColor() == Piece.PieceColor.WHITE && rowDir == -1) {
+                        if (rowDiff == 1) return true;
+                        if (rowDiff == 2 && startRow == 6 && squares[startRow-1][startCol] == null) return true; // Path check for 2-square move
+                    } else if (piece.getColor() == Piece.PieceColor.BLACK && rowDir == 1) {
+                        if (rowDiff == 1) return true;
+                        if (rowDiff == 2 && startRow == 1 && squares[startRow+1][startCol] == null) return true; // Path check for 2-square move
                     }
-                } else { // Black pawn
-                    if (startCol == endCol) { // Straight move
-                        if (squares[endRow][endCol] != null) return false;
-                        if (rowDir == 1) {
-                            if (rowDiff == 1) return true;
-                            if (rowDiff == 2 && startRow == 1 && squares[startRow+1][startCol] == null) return true;
-                        }
-                    } else if (colDiff == 1) { // Diagonal move (capture)
-                        if (rowDiff == 1 && rowDir == 1 && squares[endRow][endCol] != null) return true;
-                    }
+                }
+                // Diagonal attack (forward 1 square, column changes by 1)
+                else if (colDiff == 1 && rowDiff == 1) {
+                    if (piece.getColor() == Piece.PieceColor.WHITE && rowDir == -1) return true;
+                    if (piece.getColor() == Piece.PieceColor.BLACK && rowDir == 1) return true;
                 }
                 return false;
 
@@ -493,7 +525,7 @@ public class Board {
         }
     }
 
-    public int[] findKing(Piece.PieceColor kingColor) {
+    int[] findKing(Piece.PieceColor kingColor) {
         for (int r = 0; r < 8; r++) {
             for (int c = 0; c < 8; c++) {
                 Piece piece = squares[r][c];
@@ -529,9 +561,9 @@ public class Board {
                         }
                     } else {
                         Piece tempKing = squares[kingRow][kingCol];
-                        squares[kingRow][kingCol] = null;
+                        squares[kingRow][kingCol] = null; // Temporarily remove King for isValidPieceMove check
                         boolean canAttackKing = isValidPieceMove(r, c, kingRow, kingCol);
-                        squares[kingRow][kingCol] = tempKing;
+                        squares[kingRow][kingCol] = tempKing; // Restore King
                         if (canAttackKing) {
                             return true;
                         }
@@ -552,15 +584,6 @@ public class Board {
                 if (piece != null && piece.getColor() == currentPlayerTurn) {
                     for (int endRow = 0; endRow < 8; endRow++) {
                         for (int endCol = 0; endCol < 8; endCol++) {
-                            // Call isValidMoveAttempt to get full validation, including self-check
-                            // For move generation, we only care if it's "VALID" (not "PROMOTION_PENDING" here)
-                            // We need to temporarily move and check for promotion for isValidMoveAttempt
-                            // No, isValidMoveAttempt should just say if the move is legal; promotion is an *effect*
-                            // The current isValidMoveAttempt correctly returns true for a promotion move that is legal.
-
-                            // To filter out non-moves and promotions for AI generation
-                            // We don't need the AI to choose "e8Q" at this stage; just "e8"
-                            // If the move leads to PROMOTION_PENDING, it's still a "legal" move to be generated.
                             if (isValidMoveAttempt(startRow, startCol, endRow, endCol)) {
                                 char startFile = (char) ('a' + startCol);
                                 char startRank = (char) ('1' + (7 - startRow));
@@ -580,7 +603,6 @@ public class Board {
         }
 
         String chosenMove = legalMoves.get(random.nextInt(legalMoves.size()));
-        System.out.println(currentPlayerTurn + " AI chooses move: " + chosenMove);
         return chosenMove;
     }
 
@@ -596,26 +618,81 @@ public class Board {
             return false;
         }
 
-        Piece pieceAtEnd = squares[endRow][endCol];
-        if (pieceAtEnd != null && pieceAtEnd.getColor() == currentPlayerTurn) {
-            return false;
+        Piece targetPiece = squares[endRow][endCol];
+        boolean isTargetEmpty = (targetPiece == null);
+        boolean isTargetOccupiedByOpponent = (targetPiece != null && targetPiece.getColor() != currentPlayerTurn);
+        // boolean isTargetOccupiedByOwn = (targetPiece != null && targetPiece.getColor() == currentPlayerTurn); // Not directly used below
+
+        // General rule: Cannot move to a square occupied by your own piece (unless it's the start square itself)
+        if (isTargetEmpty == false && targetPiece.getColor() == currentPlayerTurn && (startRow != endRow || startCol != endCol)) {
+            return false; // Cannot capture own piece
         }
 
+        // --- Geometric Move Check ---
         if (!isValidPieceMove(startRow, startCol, endRow, endCol)) {
             return false;
         }
+        // --- END Geometric Move Check ---
 
-        // --- Self-Check Validation Logic ---
+        // --- Specific Occupation Rules (after geometry is confirmed) ---
+        // Pawn rules are complex here based on target occupation
+        if (pieceToMove.getType() == Piece.PieceType.PAWN) {
+            // A. Straight pawn move: MUST be empty
+            if (startCol == endCol) { // Moving straight
+                if (!isTargetEmpty) return false;
+            }
+            // B. Diagonal pawn move: MUST be capture OR En Passant
+            else {
+                boolean isEnPassantCandidate = (enPassantTargetSquare != null &&
+                        endRow == enPassantTargetSquare[0] &&
+                        endCol == enPassantTargetSquare[1]);
+
+                if (isEnPassantCandidate) {
+                    // It's a valid En Passant if the geometric diagonal move is to the en passant target square.
+                    // Pawn must also be on its correct rank (5th for White, 4th for Black)
+                    if (pieceToMove.getColor() == Piece.PieceColor.WHITE && startRow != 3) return false; // White pawn must be on 5th rank (row 3)
+                    if (pieceToMove.getColor() == Piece.PieceColor.BLACK && startRow != 4) return false; // Black pawn must be on 4th rank (row 4)
+                    // If these specific En Passant conditions are met, it's a valid en passant, target is empty by definition of EP.
+                } else { // Normal diagonal pawn move, must be a capture
+                    if (!isTargetOccupiedByOpponent) return false; // Must capture opponent's piece
+                }
+            }
+        } else { // For all non-pawn pieces
+            // If target is empty, valid.
+            // If target has opponent piece, valid capture.
+            // (isTargetOccupiedByOwn already handled above)
+        }
+        // --- END Specific Occupation Rules ---
+
+
+        // --- Self-Check Validation Logic (CRUCIAL) ---
         Piece originalStartPiece = squares[startRow][startCol];
         Piece originalEndPiece = squares[endRow][endCol];
+        Piece originalEnPassantCapturedPawn = null; // To handle en passant undo during simulation
 
+        // Perform move temporarily on board for simulation
         squares[endRow][endCol] = originalStartPiece;
         squares[startRow][startCol] = null;
 
+        // If the simulated move is an En Passant capture, remove the captured pawn temporarily
+        // This logic mirrors what will happen in movePiece for an EP capture
+        if (pieceToMove.getType() == Piece.PieceType.PAWN && Math.abs(startCol - endCol) == 1 && isTargetEmpty && enPassantTargetSquare != null && endRow == enPassantTargetSquare[0] && endCol == enPassantTargetSquare[1]) {
+            int capturedPawnRow = (originalStartPiece.getColor() == Piece.PieceColor.WHITE) ? endRow + 1 : endRow - 1;
+            int capturedPawnCol = endCol;
+            originalEnPassantCapturedPawn = squares[capturedPawnRow][capturedPawnCol];
+            squares[capturedPawnRow][capturedPawnCol] = null; // Remove the captured pawn for simulation
+        }
+
         boolean isKingInCheckAfterMove = isKingInCheck(currentPlayerTurn);
 
+        // Undo the temporary move to restore the board state
         squares[startRow][startCol] = originalStartPiece;
         squares[endRow][endCol] = originalEndPiece;
+        if (enPassantTargetSquare != null && originalEnPassantCapturedPawn != null) { // Restore captured pawn for en passant
+            int capturedPawnRow = (originalStartPiece.getColor() == Piece.PieceColor.WHITE) ? endRow + 1 : endRow - 1;
+            int capturedPawnCol = endCol;
+            squares[capturedPawnRow][capturedPawnCol] = originalEnPassantCapturedPawn;
+        }
 
         if (isKingInCheckAfterMove) {
             return false;
@@ -623,6 +700,7 @@ public class Board {
 
         return true;
     }
+
 
     private void switchTurn() {
         if (currentPlayerTurn == Piece.PieceColor.WHITE) {

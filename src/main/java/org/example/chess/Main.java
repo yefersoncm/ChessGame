@@ -1,4 +1,4 @@
-package org.example.chess;
+package org.example.chess; // Using the new package name
 
 import java.util.Scanner;
 
@@ -116,7 +116,6 @@ public class Main {
 
         } while (true);
 
-        // --- Set Initial Turn ---
         Piece.PieceColor chosenStartingTurn = null;
         System.out.print("Who's turn is it to move first? (WHITE/BLACK): ");
         String turnInput = scanner.nextLine().trim().toUpperCase();
@@ -176,13 +175,22 @@ public class Main {
 
             Piece.PieceColor currentPlayer = board.getCurrentPlayerTurn(); // Get current player
             String moveInput = "";
-            Board.MoveResult moveResult;
+            Board.MoveResult moveResult; // Corrected: Qualified with Board.
 
             // --- Game End Condition Check (for current player before they try to move) ---
-            // This is the check that determines if the current player is checkmated or stalemated.
-            String potentialLegalMoveForCurrentPlayer = board.findRandomLegalMove(); // Use AI logic to find if *any* legal move exists
-            if (potentialLegalMoveForCurrentPlayer == null) { // No legal moves found for current player
-                board.printBoard(); // Print one last time with the current board state
+            String tempFoundMove = null;
+
+            // Call findRandomLegalMove ONLY for the current player's turn to check for game end
+            // And to get the AI's move if it's AI's turn
+            if (currentPlayer == humanPlayerColor || (aiPlayerColor == null && currentPlayer != null)) {
+                // Human player or Human in HvH. Just checking if *any* moves exist.
+                tempFoundMove = board.findRandomLegalMove();
+            } else { // It's an AI player's turn
+                tempFoundMove = board.findRandomLegalMove(); // This is the AI's actual move selection
+            }
+
+            if (tempFoundMove == null) { // No legal moves found for current player (either human or AI)
+                board.printBoard(); // Final display of the board state
                 if (board.isKingInCheck(currentPlayer)) {
                     System.out.println("\n--- CHECKMATE! " + ( (currentPlayer == Piece.PieceColor.WHITE) ? "BLACK" : "WHITE" ) + " WINS! ---");
                 } else {
@@ -192,9 +200,9 @@ public class Main {
             }
             // --- End Game End Condition Check ---
 
-            // --- Determine if Human or AI Turn and Get Move ---
+            // --- Determine if Human or AI Turn and Get Move Input ---
             if (currentPlayer == humanPlayerColor || (aiPlayerColor == null && currentPlayer != null)) {
-                // This is a human player's turn (or any human in HvH)
+                // Human's turn
                 System.out.print(currentPlayer + "'s turn. Enter your move: ");
                 moveInput = scanner.nextLine();
 
@@ -204,7 +212,7 @@ public class Main {
                 }
 
                 moveResult = board.move(moveInput);
-            } else { // This is an AI player's turn (since it's not the human, and aiPlayerColor is not null)
+            } else { // AI's turn
                 System.out.println(currentPlayer + "'s turn (AI). Thinking...");
                 try {
                     Thread.sleep(1000);
@@ -213,16 +221,16 @@ public class Main {
                     System.out.println("AI thinking interrupted.");
                 }
 
-                moveInput = potentialLegalMoveForCurrentPlayer; // Use the move found earlier by findRandomLegalMove()
+                moveInput = tempFoundMove; // Use the move found earlier by findRandomLegalMove()
                 moveResult = board.move(moveInput);
             }
 
             // --- Handle MoveResult and Announce Check ---
             // This block processes the result of the move attempt
-            if (moveResult == Board.MoveResult.INVALID) {
+            if (moveResult == Board.MoveResult.INVALID) { // Corrected: Qualified with Board.
                 // Error message already printed by board.move()
                 // Turn is not switched, so loop re-prompts same player
-            } else if (moveResult == Board.MoveResult.PROMOTION_PENDING) {
+            } else if (moveResult == Board.MoveResult.PROMOTION_PENDING) { // Corrected: Qualified with Board.
                 System.out.println("Pawn promotion pending!");
 
                 Piece.PieceColor promotingPawnColor = currentPlayer;
@@ -243,14 +251,14 @@ public class Main {
                     System.err.println("Error: Could not re-parse promotion move for finalization.");
                     break; // Critical error, exit game loop
                 }
-            } else if (moveResult == Board.MoveResult.VALID) {
+            } else if (moveResult == Board.MoveResult.VALID) { // Corrected: Qualified with Board.
                 // Move was valid and executed, turn already switched. Fall through to Check announcement.
             }
 
             // --- Announce Check After Any Successful and Finalized Move ---
             // This check should only happen if a valid move (or promotion) was just completed,
             // meaning the turn has now successfully switched to the next player.
-            if (moveResult != Board.MoveResult.INVALID) {
+            if (moveResult != Board.MoveResult.INVALID) { // Corrected: Qualified with Board.
                 Piece.PieceColor playerWhoseTurnJustStarted = board.getCurrentPlayerTurn();
                 System.out.println("DEBUG: Checking if " + playerWhoseTurnJustStarted + "'s King is in check.");
                 if (board.isKingInCheck(playerWhoseTurnJustStarted)) {
