@@ -13,7 +13,7 @@ public class Board {
     private Piece.PieceColor currentPlayerTurn;
     private Random random;
 
-    private Map<Piece.PieceColor, Map<Piece.PieceType, Integer>> pieceCounts; // For Piece Counting in Training Mode
+    private Map<Piece.PieceColor, Map<Piece.PieceType, Integer>> pieceCounts;
 
     private static final Pattern FULL_MOVE_NOTATION_PATTERN = Pattern.compile("^[a-h][1-8][a-h][1-8]$");
     private static final Pattern DISAMBIGUATED_FILE_MOVE_PATTERN = Pattern.compile("^[NBRQK][a-h][a-h][1-8]$");
@@ -22,16 +22,22 @@ public class Board {
 
     private static final Pattern PIECE_PLACEMENT_PATTERN = Pattern.compile("^[NBRQKPRQnbrqkprq][a-h][1-8]$");
 
+    // --- NEW: Enum to represent the result of a move operation ---
+    public enum MoveResult {
+        VALID,              // Move was valid and executed, turn switched
+        INVALID,            // Move was invalid, no changes, turn not switched
+        PROMOTION_PENDING   // Pawn moved to last rank, promotion choice needed, turn not switched yet
+    }
+
     public Board() {
         squares = new Piece[8][8];
         random = new Random();
-        initializePieceCounts(); // Initialize piece counts map
-        setupInitialBoard();     // This will populate squares and update pieceCounts
+        initializePieceCounts();
+        setupInitialBoard();
         currentPlayerTurn = Piece.PieceColor.WHITE;
     }
 
     private void setupInitialBoard() {
-        // Set up pawns
         for (int i = 0; i < 8; i++) {
             squares[1][i] = new Piece(Piece.PieceType.PAWN, Piece.PieceColor.BLACK);
             incrementPieceCount(Piece.PieceType.PAWN, Piece.PieceColor.BLACK);
@@ -39,42 +45,23 @@ public class Board {
             incrementPieceCount(Piece.PieceType.PAWN, Piece.PieceColor.WHITE);
         }
 
-        // Set up black major/minor pieces (Rank 8, index 0)
-        squares[0][0] = new Piece(Piece.PieceType.ROOK, Piece.PieceColor.BLACK);
-        incrementPieceCount(Piece.PieceType.ROOK, Piece.PieceColor.BLACK);
-        squares[0][1] = new Piece(Piece.PieceType.KNIGHT, Piece.PieceColor.BLACK);
-        incrementPieceCount(Piece.PieceType.KNIGHT, Piece.PieceColor.BLACK);
-        squares[0][2] = new Piece(Piece.PieceType.BISHOP, Piece.PieceColor.BLACK);
-        incrementPieceCount(Piece.PieceType.BISHOP, Piece.PieceColor.BLACK);
-        squares[0][3] = new Piece(Piece.PieceType.QUEEN, Piece.PieceColor.BLACK);
-        incrementPieceCount(Piece.PieceType.QUEEN, Piece.PieceColor.BLACK);
-        squares[0][4] = new Piece(Piece.PieceType.KING, Piece.PieceColor.BLACK);
-        incrementPieceCount(Piece.PieceType.KING, Piece.PieceColor.BLACK);
-        squares[0][5] = new Piece(Piece.PieceType.BISHOP, Piece.PieceColor.BLACK);
-        incrementPieceCount(Piece.PieceType.BISHOP, Piece.PieceColor.BLACK);
-        squares[0][6] = new Piece(Piece.PieceType.KNIGHT, Piece.PieceColor.BLACK);
-        incrementPieceCount(Piece.PieceType.KNIGHT, Piece.PieceColor.BLACK);
-        squares[0][7] = new Piece(Piece.PieceType.ROOK, Piece.PieceColor.BLACK);
-        incrementPieceCount(Piece.PieceType.ROOK, Piece.PieceColor.BLACK);
+        squares[0][0] = new Piece(Piece.PieceType.ROOK, Piece.PieceColor.BLACK); incrementPieceCount(Piece.PieceType.ROOK, Piece.PieceColor.BLACK);
+        squares[0][1] = new Piece(Piece.PieceType.KNIGHT, Piece.PieceColor.BLACK); incrementPieceCount(Piece.PieceType.KNIGHT, Piece.PieceColor.BLACK);
+        squares[0][2] = new Piece(Piece.PieceType.BISHOP, Piece.PieceColor.BLACK); incrementPieceCount(Piece.PieceType.BISHOP, Piece.PieceColor.BLACK);
+        squares[0][3] = new Piece(Piece.PieceType.QUEEN, Piece.PieceColor.BLACK); incrementPieceCount(Piece.PieceType.QUEEN, Piece.PieceColor.BLACK);
+        squares[0][4] = new Piece(Piece.PieceType.KING, Piece.PieceColor.BLACK); incrementPieceCount(Piece.PieceType.KING, Piece.PieceColor.BLACK);
+        squares[0][5] = new Piece(Piece.PieceType.BISHOP, Piece.PieceColor.BLACK); incrementPieceCount(Piece.PieceType.BISHOP, Piece.PieceColor.BLACK);
+        squares[0][6] = new Piece(Piece.PieceType.KNIGHT, Piece.PieceColor.BLACK); incrementPieceCount(Piece.PieceType.KNIGHT, Piece.PieceColor.BLACK);
+        squares[0][7] = new Piece(Piece.PieceType.ROOK, Piece.PieceColor.BLACK); incrementPieceCount(Piece.PieceType.ROOK, Piece.PieceColor.BLACK);
 
-
-        // Set up white major/minor pieces (Rank 1, index 7)
-        squares[7][0] = new Piece(Piece.PieceType.ROOK, Piece.PieceColor.WHITE);
-        incrementPieceCount(Piece.PieceType.ROOK, Piece.PieceColor.WHITE);
-        squares[7][1] = new Piece(Piece.PieceType.KNIGHT, Piece.PieceColor.WHITE);
-        incrementPieceCount(Piece.PieceType.KNIGHT, Piece.PieceColor.WHITE);
-        squares[7][2] = new Piece(Piece.PieceType.BISHOP, Piece.PieceColor.WHITE);
-        incrementPieceCount(Piece.PieceType.BISHOP, Piece.PieceColor.WHITE);
-        squares[7][3] = new Piece(Piece.PieceType.QUEEN, Piece.PieceColor.WHITE);
-        incrementPieceCount(Piece.PieceType.QUEEN, Piece.PieceColor.WHITE);
-        squares[7][4] = new Piece(Piece.PieceType.KING, Piece.PieceColor.WHITE);
-        incrementPieceCount(Piece.PieceType.KING, Piece.PieceColor.WHITE);
-        squares[7][5] = new Piece(Piece.PieceType.BISHOP, Piece.PieceColor.WHITE);
-        incrementPieceCount(Piece.PieceType.BISHOP, Piece.PieceColor.WHITE);
-        squares[7][6] = new Piece(Piece.PieceType.KNIGHT, Piece.PieceColor.WHITE);
-        incrementPieceCount(Piece.PieceType.KNIGHT, Piece.PieceColor.WHITE);
-        squares[7][7] = new Piece(Piece.PieceType.ROOK, Piece.PieceColor.WHITE);
-        incrementPieceCount(Piece.PieceType.ROOK, Piece.PieceColor.WHITE);
+        squares[7][0] = new Piece(Piece.PieceType.ROOK, Piece.PieceColor.WHITE); incrementPieceCount(Piece.PieceType.ROOK, Piece.PieceColor.WHITE);
+        squares[7][1] = new Piece(Piece.PieceType.KNIGHT, Piece.PieceColor.WHITE); incrementPieceCount(Piece.PieceType.KNIGHT, Piece.PieceColor.WHITE);
+        squares[7][2] = new Piece(Piece.PieceType.BISHOP, Piece.PieceColor.WHITE); incrementPieceCount(Piece.PieceType.BISHOP, Piece.PieceColor.WHITE);
+        squares[7][3] = new Piece(Piece.PieceType.QUEEN, Piece.PieceColor.WHITE); incrementPieceCount(Piece.PieceType.QUEEN, Piece.PieceColor.WHITE);
+        squares[7][4] = new Piece(Piece.PieceType.KING, Piece.PieceColor.WHITE); incrementPieceCount(Piece.PieceType.KING, Piece.PieceColor.WHITE);
+        squares[7][5] = new Piece(Piece.PieceType.BISHOP, Piece.PieceColor.WHITE); incrementPieceCount(Piece.PieceType.BISHOP, Piece.PieceColor.WHITE);
+        squares[7][6] = new Piece(Piece.PieceType.KNIGHT, Piece.PieceColor.WHITE); incrementPieceCount(Piece.PieceType.KNIGHT, Piece.PieceColor.WHITE);
+        squares[7][7] = new Piece(Piece.PieceType.ROOK, Piece.PieceColor.WHITE); incrementPieceCount(Piece.PieceType.ROOK, Piece.PieceColor.WHITE);
     }
 
     private void initializePieceCounts() {
@@ -99,7 +86,7 @@ public class Board {
         Piece existingPiece = squares[targetRow][targetCol];
 
         if (existingPiece != null && existingPiece.getType() == newPieceType && existingPiece.getColor() == newPieceColor) {
-            return true; // Overwriting the exact same piece is always allowed, doesn't change count
+            return true;
         }
 
         int currentCount = pieceCounts.get(newPieceColor).get(newPieceType);
@@ -127,7 +114,7 @@ public class Board {
                 squares[r][c] = null;
             }
         }
-        initializePieceCounts(); // Reset all counts to zero
+        initializePieceCounts();
         System.out.println("Board cleared to a blank state.");
     }
 
@@ -161,14 +148,12 @@ public class Board {
             return false;
         }
 
-        // Handle decrementing count of overwritten piece (if it's a different piece)
         Piece oldPiece = squares[row][col];
         if (oldPiece != null && (oldPiece.getType() != pieceType || oldPiece.getColor() != pieceColor)) {
             decrementPieceCount(oldPiece.getType(), oldPiece.getColor());
         }
 
         squares[row][col] = new Piece(pieceType, pieceColor);
-        // Only increment if we truly added a new piece type/color or replaced a different one
         if (oldPiece == null || (oldPiece.getType() != pieceType || oldPiece.getColor() != pieceColor)) {
             incrementPieceCount(pieceType, pieceColor);
         }
@@ -179,7 +164,6 @@ public class Board {
 
     public void setPlayerTurn(Piece.PieceColor color) {
         this.currentPlayerTurn = color;
-        System.out.println("Turn set to " + color + ".");
     }
 
     public Piece getPiece(int row, int col) {
@@ -190,15 +174,21 @@ public class Board {
         return squares[row][col];
     }
 
-    public boolean move(String moveNotation) {
+    /**
+     * Attempts to execute a move based on algebraic notation.
+     * @param moveNotation The algebraic notation string.
+     * @return A MoveResult indicating success, failure, or pending promotion.
+     */
+    public MoveResult move(String moveNotation) {
         int[] coords = parseAlgebraicNotation(moveNotation);
         if (coords == null) {
-            return false;
+            return MoveResult.INVALID;
         }
+        // This movePiece is where the main move logic and promotion detection happens
         return movePiece(coords[0], coords[1], coords[2], coords[3]);
     }
 
-    private int[] parseAlgebraicNotation(String notation) {
+    public int[] parseAlgebraicNotation(String notation) {
         if (notation == null || notation.isEmpty()) {
             return null;
         }
@@ -323,47 +313,105 @@ public class Board {
         return null;
     }
 
-    public boolean movePiece(int startRow, int startCol, int endRow, int endCol) {
-        if (startRow < 0 || startRow >= 8 || startCol < 0 || startCol >= 8 ||
+    /**
+     * Executes a move on the board after coordinates have been determined and passed preliminary validations.
+     * This method handles the actual board update, piece capture, promotion detection, and turn switching.
+     * @param startRow Starting row.
+     * @param intstartCol Starting column. // Corrected parameter name
+     * @param endRow Ending row.
+     * @param endCol Ending column.
+     * @return A MoveResult indicating if the move was valid, invalid, or if promotion is pending.
+     */
+    public MoveResult movePiece(int startRow, int intstartCol, int endRow, int endCol) { // Note: Renamed startCol to intstartCol to avoid clash with local var
+        // These checks are already done by isValidMoveAttempt, but keep for robustness if called directly
+        if (startRow < 0 || startRow >= 8 || intstartCol < 0 || intstartCol >= 8 ||
                 endRow < 0 || endRow >= 8 || endCol < 0 || endCol >= 8) {
             System.out.println("Invalid move: Internal coordinates out of board bounds.");
-            return false;
+            return MoveResult.INVALID;
         }
 
-        Piece pieceToMove = squares[startRow][startCol];
+        Piece pieceToMove = squares[startRow][intstartCol];
 
-        if (pieceToMove == null) {
-            System.out.println("Invalid move: No piece found at [" + (char)('A' + startCol) + (8 - startRow) + "].");
-            return false;
-        }
-
-        if (pieceToMove.getColor() != currentPlayerTurn) {
-            System.out.println("Invalid move: It's " + currentPlayerTurn + "'s turn. You can only move your own pieces.");
-            return false;
+        if (pieceToMove == null || pieceToMove.getColor() != currentPlayerTurn) {
+            System.out.println("Invalid move: Piece at start square is not valid for current turn."); // More general msg
+            return MoveResult.INVALID;
         }
 
         Piece pieceAtEnd = squares[endRow][endCol];
         if (pieceAtEnd != null && pieceAtEnd.getColor() == currentPlayerTurn) {
-            System.out.println("Invalid move: Cannot capture your own piece at [" + (char)('A' + endCol) + (8 - endRow) + "].");
-            return false;
+            System.out.println("Invalid move: Cannot capture your own piece.");
+            return MoveResult.INVALID;
         }
 
-        if (!isValidMoveAttempt(startRow, startCol, endRow, endCol)) {
-            return false;
+        // --- All comprehensive checks are now inside isValidMoveAttempt ---
+        if (!isValidMoveAttempt(startRow, intstartCol, endRow, endCol)) {
+            // isValidMoveAttempt already prints specific error messages if it returns false
+            return MoveResult.INVALID;
         }
 
-        // Decrement count of captured piece, if any
+        // --- If all validations pass, perform the move and handle promotion ---
+        // 1. Decrement count of captured piece, if any
         if (pieceAtEnd != null) {
             decrementPieceCount(pieceAtEnd.getType(), pieceAtEnd.getColor());
         }
 
+        // 2. Perform the basic move (pawn or other piece)
         squares[endRow][endCol] = pieceToMove;
-        squares[startRow][startCol] = null;
+        squares[startRow][intstartCol] = null;
 
-        switchTurn();
-        System.out.println("Move successful! Now it's " + currentPlayerTurn + "'s turn.");
-        return true;
+        // 3. Check for Promotion
+        boolean isPromotion = false;
+        if (pieceToMove.getType() == Piece.PieceType.PAWN) {
+            if ((pieceToMove.getColor() == Piece.PieceColor.WHITE && endRow == 0) ||
+                    (pieceToMove.getColor() == Piece.PieceColor.BLACK && endRow == 7)) {
+                isPromotion = true;
+            }
+        }
+
+        // 4. If promotion is pending, signal it to Main. DO NOT switch turn yet.
+        if (isPromotion) {
+            System.out.println(pieceToMove.getColor() + " Pawn reached promotion square " + (char)('a'+endCol) + (char)('1'+(7-endRow)) + "!");
+            // Store the coordinates of the promoting pawn for Main to finalize
+            // Not strictly needed here, as Main will know the end square from input.
+            return MoveResult.PROMOTION_PENDING;
+        } else {
+            // If no promotion, switch turn as usual
+            switchTurn();
+            System.out.println("Move successful! Now it's " + currentPlayerTurn + "'s turn.");
+            return MoveResult.VALID;
+        }
     }
+
+    /**
+     * Finalizes a pawn promotion by replacing the pawn with the chosen piece.
+     * This method is called by Main after the player chooses a promotion piece.
+     * @param promotionRow The row where the pawn promoted.
+     * @param promotionCol The column where the pawn promoted.
+     * @param chosenType The Piece.PieceType to promote to.
+     */
+    public void finalizePromotion(int promotionRow, int promotionCol, Piece.PieceType chosenType) {
+        Piece promotingPawn = squares[promotionRow][promotionCol];
+        if (promotingPawn == null || promotingPawn.getType() != Piece.PieceType.PAWN) {
+            System.err.println("Error: No pawn found at promotion square or not a pawn.");
+            return;
+        }
+
+        // Decrement the pawn count
+        decrementPieceCount(Piece.PieceType.PAWN, promotingPawn.getColor());
+
+        // Place the new promoted piece
+        squares[promotionRow][promotionCol] = new Piece(chosenType, promotingPawn.getColor());
+
+        // Increment the count of the new piece type
+        incrementPieceCount(chosenType, promotingPawn.getColor());
+
+        System.out.println(promotingPawn.getColor() + " Pawn promoted to " + chosenType + "!");
+
+        // After promotion is finalized, switch the turn
+        switchTurn();
+        System.out.println("Turn switched to " + currentPlayerTurn + ".");
+    }
+
 
     private boolean isPathClear(int startRow, int startCol, int endRow, int endCol) {
         int rowDir = Integer.compare(endRow, startRow);
@@ -445,7 +493,7 @@ public class Board {
         }
     }
 
-    private int[] findKing(Piece.PieceColor kingColor) {
+    public int[] findKing(Piece.PieceColor kingColor) {
         for (int r = 0; r < 8; r++) {
             for (int c = 0; c < 8; c++) {
                 Piece piece = squares[r][c];
@@ -472,20 +520,18 @@ public class Board {
             for (int c = 0; c < 8; c++) {
                 Piece opponentPiece = squares[r][c];
                 if (opponentPiece != null && opponentPiece.getColor() == opponentColor) {
-                    // --- Special handling for Pawn attack (pawns attack diagonally only) ---
                     if (opponentPiece.getType() == Piece.PieceType.PAWN) {
-                        int pawnRowDir = (opponentPiece.getColor() == Piece.PieceColor.WHITE) ? -1 : 1; // Direction pawn moves
-                        int rowDiff = kingRow - r; // Row difference from pawn to king
-                        int colDiff = kingCol - c; // Col difference from pawn to king
-                        // Check if king is on a square diagonally in front of the pawn
+                        int pawnRowDir = (opponentPiece.getColor() == Piece.PieceColor.WHITE) ? -1 : 1;
+                        int rowDiff = kingRow - r;
+                        int colDiff = kingCol - c;
                         if (Math.abs(colDiff) == 1 && rowDiff == pawnRowDir) {
-                            return true; // Pawn attacks the King
+                            return true;
                         }
-                    } else { // For all other pieces, use isValidPieceMove
+                    } else {
                         Piece tempKing = squares[kingRow][kingCol];
-                        squares[kingRow][kingCol] = null; // Temporarily remove King for isValidPieceMove check
+                        squares[kingRow][kingCol] = null;
                         boolean canAttackKing = isValidPieceMove(r, c, kingRow, kingCol);
-                        squares[kingRow][kingCol] = tempKing; // Restore King
+                        squares[kingRow][kingCol] = tempKing;
                         if (canAttackKing) {
                             return true;
                         }
@@ -506,6 +552,15 @@ public class Board {
                 if (piece != null && piece.getColor() == currentPlayerTurn) {
                     for (int endRow = 0; endRow < 8; endRow++) {
                         for (int endCol = 0; endCol < 8; endCol++) {
+                            // Call isValidMoveAttempt to get full validation, including self-check
+                            // For move generation, we only care if it's "VALID" (not "PROMOTION_PENDING" here)
+                            // We need to temporarily move and check for promotion for isValidMoveAttempt
+                            // No, isValidMoveAttempt should just say if the move is legal; promotion is an *effect*
+                            // The current isValidMoveAttempt correctly returns true for a promotion move that is legal.
+
+                            // To filter out non-moves and promotions for AI generation
+                            // We don't need the AI to choose "e8Q" at this stage; just "e8"
+                            // If the move leads to PROMOTION_PENDING, it's still a "legal" move to be generated.
                             if (isValidMoveAttempt(startRow, startCol, endRow, endCol)) {
                                 char startFile = (char) ('a' + startCol);
                                 char startRank = (char) ('1' + (7 - startRow));
@@ -525,6 +580,7 @@ public class Board {
         }
 
         String chosenMove = legalMoves.get(random.nextInt(legalMoves.size()));
+        System.out.println(currentPlayerTurn + " AI chooses move: " + chosenMove);
         return chosenMove;
     }
 
@@ -549,6 +605,7 @@ public class Board {
             return false;
         }
 
+        // --- Self-Check Validation Logic ---
         Piece originalStartPiece = squares[startRow][startCol];
         Piece originalEndPiece = squares[endRow][endCol];
 

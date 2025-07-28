@@ -1,13 +1,14 @@
-package org.example.chess; // Using the new package name
+package org.example.chess;
 
 import java.util.Scanner;
 
 public class Main {
-    private static Scanner scanner = new Scanner(System.in); // Make scanner static and accessible
+    private static Scanner scanner = new Scanner(System.in);
+    private static Board currentBoard;
 
     public static void main(String[] args) {
         mainMenu();
-        scanner.close(); // Close scanner when main menu loop ends
+        scanner.close();
     }
 
     public static void mainMenu() {
@@ -22,20 +23,24 @@ public class Main {
 
             while (!scanner.hasNextInt()) {
                 System.out.println("Invalid input. Please enter a number.");
-                scanner.next(); // Consume the invalid input
+                scanner.next();
                 System.out.print("Enter your choice: ");
             }
             choice = scanner.nextInt();
-            scanner.nextLine(); // Consume newline left-over
+            scanner.nextLine();
 
             switch (choice) {
                 case 1:
-                    startHumanVsAIMatch();
+                    currentBoard = new Board(); // Fresh board for standard game
+                    startHumanVsAIMatch(currentBoard);
                     break;
                 case 2:
-                    startHumanVsHumanMatch();
+                    currentBoard = new Board(); // Fresh board for standard game
+                    startHumanVsHumanMatch(currentBoard);
                     break;
                 case 3:
+                    // Training mode creates its own board instance which becomes currentBoard
+                    currentBoard = new Board(); // Ensure a board instance exists before starting training setup
                     startTrainingMode();
                     break;
                 case 4:
@@ -47,23 +52,23 @@ public class Main {
         } while (choice != 4);
     }
 
-    public static void startHumanVsAIMatch() {
-        Board board = new Board(); // Start with a fresh, standard board
+    public static void startHumanVsAIMatch(Board board) {
+        Piece.PieceColor chosenAiColor = null;
 
-        Piece.PieceColor humanColor = Piece.PieceColor.WHITE; // Default human is White
-        Piece.PieceColor aiColor = Piece.PieceColor.BLACK;    // Default AI is Black
-
-        // Ask who AI will be
         System.out.print("Who will be the AI? (WHITE/BLACK): ");
         String aiColorInput = scanner.nextLine().trim().toUpperCase();
+
         if (aiColorInput.equals("WHITE")) {
-            aiColor = Piece.PieceColor.WHITE;
-            humanColor = Piece.PieceColor.BLACK;
+            chosenAiColor = Piece.PieceColor.WHITE;
         } else if (aiColorInput.equals("BLACK")) {
-            // Defaults are fine
+            chosenAiColor = Piece.PieceColor.BLACK;
         } else {
             System.out.println("Invalid input. Defaulting AI to BLACK.");
+            chosenAiColor = Piece.PieceColor.BLACK;
         }
+
+        Piece.PieceColor humanColor = (chosenAiColor == Piece.PieceColor.WHITE) ? Piece.PieceColor.BLACK : Piece.PieceColor.WHITE;
+        Piece.PieceColor aiColor = chosenAiColor;
 
         System.out.println("--- Human (" + humanColor + ") vs. AI (" + aiColor + ") Match Started ---");
         System.out.println("Enter moves (e.g., 'e2e4' or 'Nf3'). Type 'exit' to quit.");
@@ -71,18 +76,17 @@ public class Main {
         runGameLoop(board, humanColor, aiColor);
     }
 
-    public static void startHumanVsHumanMatch() {
-        Board board = new Board(); // Start with a fresh, standard board
+    public static void startHumanVsHumanMatch(Board board) {
         System.out.println("--- Human vs. Human Match Started ---");
         System.out.println("Enter moves (e.g., 'e2e4' or 'Nf3'). Type 'exit' to quit.");
 
-        // In HvH, both players are human. We can pass a null/dummy AI color.
-        runGameLoop(board, Piece.PieceColor.WHITE, null); // White is always human; no AI color
+        runGameLoop(board, Piece.PieceColor.WHITE, null);
     }
 
     public static void startTrainingMode() {
         Board trainingBoard = new Board(); // Create a specific board for training
         trainingBoard.clearBoard(); // Start with a blank board
+        currentBoard = trainingBoard; // Assign to currentBoard for game loop after setup
 
         System.out.println("\n--- Training Mode: Custom Board Setup ---");
         System.out.println("Enter piece placements (e.g., 'Nf3' for White Knight at f3, 'kr1' for Black King at a1).");
@@ -90,60 +94,68 @@ public class Main {
 
         String input;
         do {
-            trainingBoard.printBoard(); // Show current setup
+            currentBoard.printBoard(); // Use currentBoard for printing in setup
             System.out.print("Place piece (e.g., Nf3) or 'done': ");
             input = scanner.nextLine().trim();
 
             if (input.equalsIgnoreCase("done")) {
+                if (currentBoard.findKing(Piece.PieceColor.WHITE) == null || currentBoard.findKing(Piece.PieceColor.BLACK) == null) {
+                    System.out.println("Error: Both White and Black Kings must be on the board for a valid game. Please place them.");
+                    continue;
+                }
                 break;
             }
 
-            trainingBoard.placePiece(input); // Attempt to place the piece
+            currentBoard.placePiece(input);
 
-            // This loop ensures they press enter to continue or type 'n'
             System.out.print("Enter another piece? (y/n): ");
             String another = scanner.nextLine().trim().toLowerCase();
             if (!another.equals("y")) {
                 break;
             }
 
-        } while (true); // Loop until 'done' or 'n'
+        } while (true);
 
         // --- Set Initial Turn ---
+        Piece.PieceColor chosenStartingTurn = null;
         System.out.print("Who's turn is it to move first? (WHITE/BLACK): ");
         String turnInput = scanner.nextLine().trim().toUpperCase();
         if (turnInput.equals("WHITE")) {
-            trainingBoard.setPlayerTurn(Piece.PieceColor.WHITE);
+            chosenStartingTurn = Piece.PieceColor.WHITE;
         } else if (turnInput.equals("BLACK")) {
-            trainingBoard.setPlayerTurn(Piece.PieceColor.BLACK);
+            chosenStartingTurn = Piece.PieceColor.BLACK;
         } else {
             System.out.println("Invalid input. Defaulting turn to WHITE.");
-            trainingBoard.setPlayerTurn(Piece.PieceColor.WHITE);
+            chosenStartingTurn = Piece.PieceColor.WHITE;
         }
+        currentBoard.setPlayerTurn(chosenStartingTurn);
 
-        // --- Choose Game Mode After Setup ---
         System.out.print("Start this custom board as Human vs Human (HvH) or Human vs AI (HvAI)? ");
         String gameModeChoice = scanner.nextLine().trim().toUpperCase();
 
         if (gameModeChoice.equals("HVH")) {
             System.out.println("--- Starting Human vs. Human Match on Custom Board ---");
-            runGameLoop(trainingBoard, Piece.PieceColor.WHITE, null); // Always prompt for both
+            runGameLoop(currentBoard, Piece.PieceColor.WHITE, null);
         } else if (gameModeChoice.equals("HVAI")) {
             Piece.PieceColor humanColor = Piece.PieceColor.WHITE;
             Piece.PieceColor aiColor = Piece.PieceColor.BLACK;
 
+            Piece.PieceColor chosenAiColor = null;
             System.out.print("Who will be the AI in this custom match? (WHITE/BLACK): ");
             String customAiColorInput = scanner.nextLine().trim().toUpperCase();
             if (customAiColorInput.equals("WHITE")) {
-                aiColor = Piece.PieceColor.WHITE;
-                humanColor = Piece.PieceColor.BLACK;
+                chosenAiColor = Piece.PieceColor.WHITE;
             } else if (customAiColorInput.equals("BLACK")) {
-                // Defaults are fine
+                chosenAiColor = Piece.PieceColor.BLACK;
             } else {
                 System.out.println("Invalid input. Defaulting AI to BLACK.");
+                chosenAiColor = Piece.PieceColor.BLACK;
             }
+            aiColor = chosenAiColor;
+            humanColor = (chosenAiColor == Piece.PieceColor.WHITE) ? Piece.PieceColor.BLACK : Piece.PieceColor.WHITE;
+
             System.out.println("--- Starting Human (" + humanColor + ") vs. AI (" + aiColor + ") Match on Custom Board ---");
-            runGameLoop(trainingBoard, humanColor, aiColor);
+            runGameLoop(currentBoard, humanColor, aiColor);
         } else {
             System.out.println("Invalid game mode choice. Returning to main menu.");
         }
@@ -152,6 +164,7 @@ public class Main {
 
     /**
      * Central game loop logic, reusable for HvAI and HvH modes.
+     * Handles turns, move input, validation results, promotion prompts, and game end conditions.
      * @param board The Board instance to use.
      * @param humanPlayerColor The color of the human player (or one of them for HvH).
      * @param aiPlayerColor The color of the AI player, or null if HvH.
@@ -161,46 +174,105 @@ public class Main {
         while (true) {
             board.printBoard(); // Display the current board state
 
-            if (board.getCurrentPlayerTurn() == humanPlayerColor) {
-                // Human's turn
-                System.out.print(board.getCurrentPlayerTurn() + "'s turn. Enter your move: ");
-                String moveInput = scanner.nextLine();
+            Piece.PieceColor currentPlayer = board.getCurrentPlayerTurn(); // Get current player
+            String moveInput = "";
+            Board.MoveResult moveResult;
+
+            // --- Game End Condition Check (for current player before they try to move) ---
+            // This is the check that determines if the current player is checkmated or stalemated.
+            String potentialLegalMoveForCurrentPlayer = board.findRandomLegalMove(); // Use AI logic to find if *any* legal move exists
+            if (potentialLegalMoveForCurrentPlayer == null) { // No legal moves found for current player
+                board.printBoard(); // Print one last time with the current board state
+                if (board.isKingInCheck(currentPlayer)) {
+                    System.out.println("\n--- CHECKMATE! " + ( (currentPlayer == Piece.PieceColor.WHITE) ? "BLACK" : "WHITE" ) + " WINS! ---");
+                } else {
+                    System.out.println("\n--- STALEMATE! Game is a DRAW. ---");
+                }
+                break; // End game loop
+            }
+            // --- End Game End Condition Check ---
+
+            // --- Determine if Human or AI Turn and Get Move ---
+            if (currentPlayer == humanPlayerColor || (aiPlayerColor == null && currentPlayer != null)) {
+                // This is a human player's turn (or any human in HvH)
+                System.out.print(currentPlayer + "'s turn. Enter your move: ");
+                moveInput = scanner.nextLine();
 
                 if (moveInput.equalsIgnoreCase("exit") || moveInput.equalsIgnoreCase("quit")) {
                     System.out.println("Exiting match. Returning to main menu.");
                     break;
                 }
 
-                board.move(moveInput); // Attempt human's move
-            } else {
-                // AI's turn (or second human in HvH if aiPlayerColor is null)
-                if (aiPlayerColor != null && board.getCurrentPlayerTurn() == aiPlayerColor) { // It's an AI turn
-                    System.out.println(aiPlayerColor + "'s turn (AI). Thinking...");
-                    try {
-                        Thread.sleep(1000); // Simulate "thinking" time
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        System.out.println("AI thinking interrupted.");
-                    }
-
-                    String aiMove = board.findRandomLegalMove();
-                    if (aiMove != null) {
-                        board.move(aiMove);
-                    } else {
-                        System.out.println("AI has no legal moves. Game over (for now).");
-                        break;
-                    }
-                } else { // It's a Human vs Human setup, so this is the second human player
-                    System.out.print(board.getCurrentPlayerTurn() + "'s turn. Enter your move: ");
-                    String moveInput = scanner.nextLine();
-
-                    if (moveInput.equalsIgnoreCase("exit") || moveInput.equalsIgnoreCase("quit")) {
-                        System.out.println("Exiting match. Returning to main menu.");
-                        break;
-                    }
-
-                    board.move(moveInput);
+                moveResult = board.move(moveInput);
+            } else { // This is an AI player's turn (since it's not the human, and aiPlayerColor is not null)
+                System.out.println(currentPlayer + "'s turn (AI). Thinking...");
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    System.out.println("AI thinking interrupted.");
                 }
+
+                moveInput = potentialLegalMoveForCurrentPlayer; // Use the move found earlier by findRandomLegalMove()
+                moveResult = board.move(moveInput);
+            }
+
+            // --- Handle MoveResult and Announce Check ---
+            // This block processes the result of the move attempt
+            if (moveResult == Board.MoveResult.INVALID) {
+                // Error message already printed by board.move()
+                // Turn is not switched, so loop re-prompts same player
+            } else if (moveResult == Board.MoveResult.PROMOTION_PENDING) {
+                System.out.println("Pawn promotion pending!");
+
+                Piece.PieceColor promotingPawnColor = currentPlayer;
+
+                Piece.PieceType chosenType;
+                if (promotingPawnColor == humanPlayerColor || (aiPlayerColor == null && promotingPawnColor != null)) {
+                    chosenType = promptForPromotionPiece(scanner);
+                } else { // AI's pawn promoting
+                    System.out.println(promotingPawnColor + " AI automatically promotes to QUEEN.");
+                    chosenType = Piece.PieceType.QUEEN;
+                }
+
+                // Get coords from the moveInput string to finalize promotion
+                int[] coords = board.parseAlgebraicNotation(moveInput);
+                if (coords != null) {
+                    board.finalizePromotion(coords[2], coords[3], chosenType); // Finalize and switches turn
+                } else {
+                    System.err.println("Error: Could not re-parse promotion move for finalization.");
+                    break; // Critical error, exit game loop
+                }
+            } else if (moveResult == Board.MoveResult.VALID) {
+                // Move was valid and executed, turn already switched. Fall through to Check announcement.
+            }
+
+            // --- Announce Check After Any Successful and Finalized Move ---
+            // This check should only happen if a valid move (or promotion) was just completed,
+            // meaning the turn has now successfully switched to the next player.
+            if (moveResult != Board.MoveResult.INVALID) {
+                Piece.PieceColor playerWhoseTurnJustStarted = board.getCurrentPlayerTurn();
+                System.out.println("DEBUG: Checking if " + playerWhoseTurnJustStarted + "'s King is in check.");
+                if (board.isKingInCheck(playerWhoseTurnJustStarted)) {
+                    System.out.println("\n--- CHECK! " + playerWhoseTurnJustStarted + "'s King is in check! ---");
+                }
+            }
+        }
+    }
+
+    private static Piece.PieceType promptForPromotionPiece(Scanner scanner) {
+        System.out.println("Promote pawn to (Q)ueen, (R)ook, (B)ishop, or (N)knight?");
+        String choice;
+        while (true) {
+            System.out.print("Enter your choice (Q/R/B/N): ");
+            choice = scanner.nextLine().trim().toUpperCase();
+            switch (choice) {
+                case "Q": return Piece.PieceType.QUEEN;
+                case "R": return Piece.PieceType.ROOK;
+                case "B": return Piece.PieceType.BISHOP;
+                case "N": return Piece.PieceType.KNIGHT;
+                default:
+                    System.out.println("Invalid choice. Please enter Q, R, B, or N.");
             }
         }
     }
