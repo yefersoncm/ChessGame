@@ -1,6 +1,7 @@
 package org.example.chess;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,12 +31,13 @@ public class Board {
     private static final Pattern SHORTENED_PIECE_MOVE_PATTERN = Pattern.compile("^[NBRQK][a-h][1-8]$");
 
     private static final Pattern PIECE_PLACEMENT_PATTERN = Pattern.compile("^[NBRQKPRQnbrqkprq][a-h][1-8]$");
-    // Inside your Board class, near the other Pattern declarations
-    private static final Pattern PAWN_PUSH_NOTATION_PATTERN = Pattern.compile("^[a-h][1-8]$");
-    private static final Pattern PAWN_CAPTURE_NOTATION_PATTERN = Pattern.compile("^[a-h]x[a-h][1-8]$");
+
     private static final Pattern CASTLE_KINGSIDE_PATTERN = Pattern.compile("O-O|0-0");
     private static final Pattern CASTLE_QUEENSIDE_PATTERN = Pattern.compile("O-O-O|0-0-0");
     private static final Pattern PROMOTION_NOTATION_PATTERN = Pattern.compile("^[a-h][1-8][a-h][1-8][NBRQ]$");
+    private static final Pattern PAWN_PUSH_NOTATION_PATTERN = Pattern.compile("^[a-h][1-8]$");
+    private static final Pattern PAWN_CAPTURE_NOTATION_PATTERN = Pattern.compile("^[a-h]x[a-h][1-8]$");
+
 
     public enum MoveResult {
         VALID,
@@ -43,16 +45,16 @@ public class Board {
         PROMOTION_PENDING
     }
 
-    // --- NEW: Piece Values for AI Evaluation ---
+    // --- Piece Values for AI Evaluation ---
     private static final Map<Piece.PieceType, Integer> PIECE_VALUES;
     static {
         PIECE_VALUES = new HashMap<>();
-        PIECE_VALUES.put(Piece.PieceType.PAWN, 1);
-        PIECE_VALUES.put(Piece.PieceType.KNIGHT, 3);
-        PIECE_VALUES.put(Piece.PieceType.BISHOP, 3);
-        PIECE_VALUES.put(Piece.PieceType.ROOK, 5);
-        PIECE_VALUES.put(Piece.PieceType.QUEEN, 9);
-        PIECE_VALUES.put(Piece.PieceType.KING, 100); // King's value is high but not infinite, as it can be captured
+        PIECE_VALUES.put(Piece.PieceType.PAWN, 10);
+        PIECE_VALUES.put(Piece.PieceType.KNIGHT, 30);
+        PIECE_VALUES.put(Piece.PieceType.BISHOP, 30);
+        PIECE_VALUES.put(Piece.PieceType.ROOK, 50);
+        PIECE_VALUES.put(Piece.PieceType.QUEEN, 90);
+        PIECE_VALUES.put(Piece.PieceType.KING, 900);
     }
 
     public Board() {
@@ -216,11 +218,6 @@ public class Board {
         return squares[row][col];
     }
 
-    /**
-     * Attempts to execute a move based on algebraic notation.
-     * @param moveNotation The algebraic notation string.
-     * @return A MoveResult indicating success, failure, or pending promotion.
-     */
     public Board.MoveResult move(String moveNotation) {
         ParsedMove parsedMoveDetails = parseAlgebraicNotationInternal(moveNotation);
         if (parsedMoveDetails == null) {
@@ -991,5 +988,14 @@ public class Board {
         whiteRookHMoved = false;
         blackRookAMoved = false;
         blackRookHMoved = false;
+    }
+
+    /**
+     * Sets the en Passant target square directly for testing specific scenarios.
+     * @param row The row of the en passant target square.
+     * @param col The column of the en passant target square.
+     */
+    public void setEnPassantTargetSquareForTest(int row, int col) {
+        this.enPassantTargetSquare = new int[]{row, col};
     }
 }
