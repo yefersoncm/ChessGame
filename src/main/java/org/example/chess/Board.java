@@ -17,15 +17,16 @@ public class Board {
 
     private int[] enPassantTargetSquare = null;
 
-    // --- Castling Flags ---
     private boolean whiteKingMoved = false;
     private boolean blackKingMoved = false;
-    private boolean whiteRookAMoved = false; // Queenside Rook (a1)
-    private boolean whiteRookHMoved = false; // Kingside Rook (h1)
-    private boolean blackRookAMoved = false; // Queenside Rook (a8)
-    private boolean blackRookHMoved = false; // Kingside Rook (h8)
-    // --- END Castling Flags ---
+    private boolean whiteRookAMoved = false;
+    private boolean whiteRookHMoved = false;
+    private boolean blackRookAMoved = false;
+    private boolean blackRookHMoved = false;
 
+
+    private static final Pattern PAWN_PUSH_NOTATION_PATTERN = Pattern.compile("^[a-h][1-8]$");
+    private static final Pattern PAWN_CAPTURE_NOTATION_PATTERN = Pattern.compile("^[a-h]x[a-h][1-8]$");
     private static final Pattern FULL_MOVE_NOTATION_PATTERN = Pattern.compile("^[a-h][1-8][a-h][1-8]$");
     private static final Pattern DISAMBIGUATED_FILE_MOVE_PATTERN = Pattern.compile("^[NBRQK][a-h][a-h][1-8]$");
     private static final Pattern DISAMBIGUATED_RANK_MOVE_PATTERN = Pattern.compile("^[NBRQK][1-8][a-h][1-8]$");
@@ -35,6 +36,9 @@ public class Board {
 
     private static final Pattern CASTLE_KINGSIDE_PATTERN = Pattern.compile("O-O|0-0");
     private static final Pattern CASTLE_QUEENSIDE_PATTERN = Pattern.compile("O-O-O|0-0-0");
+
+    // --- NEW: Promotion Notation Pattern (e.g., "e7e8Q") ---
+    private static final Pattern PROMOTION_NOTATION_PATTERN = Pattern.compile("^[a-h][1-8][a-h][1-8][NBRQ]$");
 
     public enum MoveResult {
         VALID,
@@ -50,7 +54,6 @@ public class Board {
         currentPlayerTurn = Piece.PieceColor.WHITE;
         enPassantTargetSquare = null;
 
-        // --- Initialize Castling Flags for New Game (important for starting board) ---
         whiteKingMoved = false;
         blackKingMoved = false;
         whiteRookAMoved = false;
@@ -78,7 +81,7 @@ public class Board {
 
         squares[7][0] = new Piece(Piece.PieceType.ROOK, Piece.PieceColor.WHITE); incrementPieceCount(Piece.PieceType.ROOK, Piece.PieceColor.WHITE);
         squares[7][1] = new Piece(Piece.PieceType.KNIGHT, Piece.PieceColor.WHITE); incrementPieceCount(Piece.PieceType.KNIGHT, Piece.PieceColor.WHITE);
-        squares[7][2] = new  Piece(Piece.PieceType.BISHOP, Piece.PieceColor.WHITE); incrementPieceCount(Piece.PieceType.BISHOP, Piece.PieceColor.WHITE);
+        squares[7][2] = new Piece(Piece.PieceType.BISHOP, Piece.PieceColor.WHITE); incrementPieceCount(Piece.PieceType.BISHOP, Piece.PieceColor.WHITE);
         squares[7][3] = new Piece(Piece.PieceType.QUEEN, Piece.PieceColor.WHITE); incrementPieceCount(Piece.PieceType.QUEEN, Piece.PieceColor.WHITE);
         squares[7][4] = new Piece(Piece.PieceType.KING, Piece.PieceColor.WHITE); incrementPieceCount(Piece.PieceType.KING, Piece.PieceColor.WHITE);
         squares[7][5] = new Piece(Piece.PieceType.BISHOP, Piece.PieceColor.WHITE); incrementPieceCount(Piece.PieceType.BISHOP, Piece.PieceColor.WHITE);
@@ -138,14 +141,13 @@ public class Board {
         }
         initializePieceCounts();
         enPassantTargetSquare = null;
-        // --- Reset Castling Flags on Clear ---
+
         whiteKingMoved = false;
         blackKingMoved = false;
         whiteRookAMoved = false;
         whiteRookHMoved = false;
         blackRookAMoved = false;
         blackRookHMoved = false;
-        // --- END Reset ---
         System.out.println("Board cleared to a blank state.");
     }
 
@@ -211,9 +213,37 @@ public class Board {
      * @return A MoveResult indicating success, failure, or pending promotion.
      */
     public Board.MoveResult move(String moveNotation) {
-        // --- NEW: Check for Castling Notation First ---
-        boolean isKingsideCastleNotation = CASTLE_KINGSIDE_PATTERN.matcher(moveNotation).matches();
-        boolean isQueensideCastleNotation = CASTLE_QUEENSIDE_PATTERN.matcher(moveNotation).matches();
+        ParsedMove parsedMoveDetails = parseAlgebraicNotationInternal(moveNotation);
+        if (parsedMoveDetails == null) {
+            return Board.MoveResult.INVALID;
+        }
+        return movePiece(parsedMoveDetails); // Pass the ParsedMove object
+    }
+
+    /**
+     * This method is public so Main.java can call it to re-parse move strings
+     * for details like promotion square coordinates.
+     * @param notation The algebraic notation string.
+     * @return A ParsedMove object with move details, or null if invalid/ambiguous.
+     */
+    public ParsedMove parseAlgebraicNotation(String notation) {
+        return parseAlgebraicNotationInternal(notation);
+    }
+
+    /**
+     * Internal parsing method now returns a ParsedMove object.
+     * This method performs the actual parsing logic.
+     */
+    private ParsedMove parseAlgebraicNotationInternal(String notation) {
+        if (notation == null || notation.isEmpty()) {
+            return null;
+        }
+
+        // --- Order of parsing is crucial here (most specific to most general) ---
+
+        // 1. Castling Notation First (these generate ParsedMove with castling flags)
+        boolean isKingsideCastleNotation = CASTLE_KINGSIDE_PATTERN.matcher(notation).matches();
+        boolean isQueensideCastleNotation = CASTLE_QUEENSIDE_PATTERN.matcher(notation).matches();
 
         if (isKingsideCastleNotation || isQueensideCastleNotation) {
             int kingStartRow = (currentPlayerTurn == Piece.PieceColor.WHITE) ? 7 : 0;
@@ -221,23 +251,117 @@ public class Board {
 
             int kingEndCol = isKingsideCastleNotation ? 6 : 2; // g-file for Kingside, c-file for Queenside
 
-            // Pass King's move only; movePiece will recognize it as castling and move Rook
-            return movePiece(kingStartRow, kingStartCol, kingStartRow, kingEndCol);
-        }
-        // --- END NEW ---
-
-        int[] coords = parseAlgebraicNotation(moveNotation);
-        if (coords == null) {
-            return Board.MoveResult.INVALID;
-        }
-        return movePiece(coords[0], coords[1], coords[2], coords[3]);
-    }
-
-    public int[] parseAlgebraicNotation(String notation) {
-        if (notation == null || notation.isEmpty()) {
-            return null;
+            return new ParsedMove(kingStartRow, kingStartCol, kingStartRow, kingEndCol, isKingsideCastleNotation, isQueensideCastleNotation);
         }
 
+        // 2. Promotion Notation (e.g., "e7e8Q")
+        if (PROMOTION_NOTATION_PATTERN.matcher(notation).matches()) {
+            char startFileChar = notation.charAt(0);
+            char startRankChar = notation.charAt(1);
+            char endFileChar = notation.charAt(2);
+            char endRankChar = notation.charAt(3);
+            char promotedPieceChar = notation.charAt(4); // Last char is promotion type
+
+            int startCol = startFileChar - 'a';
+            int startRow = 8 - Character.getNumericValue(startRankChar);
+            int endCol = endFileChar - 'a';
+            int endRow = 8 - Character.getNumericValue(endRankChar);
+
+            // Basic validation for promotion context in notation parsing
+            Piece pieceAtStart = squares[startRow][startCol];
+            if (pieceAtStart == null || pieceAtStart.getType() != Piece.PieceType.PAWN || pieceAtStart.getColor() != currentPlayerTurn) {
+                System.out.println("Invalid promotion move: No pawn of your color at starting square " + startFileChar + startRankChar + ".");
+                return null;
+            }
+            if (!((pieceAtStart.getColor() == Piece.PieceColor.WHITE && endRow == 0) || (pieceAtStart.getColor() == Piece.PieceColor.BLACK && endRow == 7))) {
+                System.out.println("Invalid promotion move: Pawn must reach 1st or 8th rank for promotion.");
+                return null;
+            }
+
+            Piece.PieceType promotionType;
+            switch (promotedPieceChar) {
+                case 'Q': promotionType = Piece.PieceType.QUEEN; break;
+                case 'R': promotionType = Piece.PieceType.ROOK; break;
+                case 'B': promotionType = Piece.PieceType.BISHOP; break;
+                case 'N': promotionType = Piece.PieceType.KNIGHT; break;
+                default: return null;
+            }
+
+            ParsedMove parsedMove = new ParsedMove(startRow, startCol, endRow, endCol);
+            parsedMove.promotionType = promotionType;
+            return parsedMove;
+        }
+
+        // 3. Pawn Capture Notation (e.g., "exd5")
+        if (PAWN_CAPTURE_NOTATION_PATTERN.matcher(notation).matches()) {
+            char startFileChar = notation.charAt(0);
+            char endFileChar = notation.charAt(2);
+            char endRankChar = notation.charAt(3);
+
+            int startCol = startFileChar - 'a';
+            int endCol = endFileChar - 'a';
+            int endRow = 8 - Character.getNumericValue(endRankChar);
+
+            int startRow;
+            if (currentPlayerTurn == Piece.PieceColor.WHITE) {
+                startRow = endRow + 1; // White pawn captures from rank below
+            } else { // Black
+                startRow = endRow - 1; // Black pawn captures from rank above
+            }
+
+            Piece pieceAtStart = squares[startRow][startCol];
+            if (pieceAtStart == null || pieceAtStart.getType() != Piece.PieceType.PAWN || pieceAtStart.getColor() != currentPlayerTurn) {
+                System.out.println("Invalid pawn capture: No pawn found at " + startFileChar + (8-startRow) + " to make this capture.");
+                return null;
+            }
+
+            return new ParsedMove(startRow, startCol, endRow, endCol);
+        }
+
+        // 4. Pawn Push Notation (e.g., "e4")
+        if (PAWN_PUSH_NOTATION_PATTERN.matcher(notation).matches()) {
+            char endFileChar = notation.charAt(0);
+            char endRankChar = notation.charAt(1);
+
+            int endCol = endFileChar - 'a';
+            int endRow = 8 - Character.getNumericValue(endRankChar);
+
+            List<int[]> candidateSources = new ArrayList<>();
+            int pawnDirection = (currentPlayerTurn == Piece.PieceColor.WHITE) ? -1 : 1;
+
+            int candidateRow1 = endRow - pawnDirection;
+            if (candidateRow1 >= 0 && candidateRow1 < 8) {
+                Piece pieceAtSource = squares[candidateRow1][endCol];
+                if (pieceAtSource != null && pieceAtSource.getType() == Piece.PieceType.PAWN && pieceAtSource.getColor() == currentPlayerTurn) {
+                    if (isValidMoveAttempt(new ParsedMove(candidateRow1, endCol, endRow, endCol))) {
+                        candidateSources.add(new int[]{candidateRow1, endCol});
+                    }
+                }
+            }
+
+            int candidateRow2 = endRow - (pawnDirection * 2);
+            if ((currentPlayerTurn == Piece.PieceColor.WHITE && candidateRow2 == 6) || (currentPlayerTurn == Piece.PieceColor.BLACK && candidateRow2 == 1)) {
+                Piece pieceAtSource = squares[candidateRow2][endCol];
+                if (pieceAtSource != null && pieceAtSource.getType() == Piece.PieceType.PAWN && pieceAtSource.getColor() == currentPlayerTurn) {
+                    if (isValidMoveAttempt(new ParsedMove(candidateRow2, endCol, endRow, endCol))) {
+                        candidateSources.add(new int[]{candidateRow2, endCol});
+                    }
+                }
+            }
+
+            if (candidateSources.size() == 1) {
+                int[] source = candidateSources.get(0);
+                return new ParsedMove(source[0], source[1], endRow, endCol);
+            } else if (candidateSources.isEmpty()) {
+                System.out.println("Invalid pawn push: No pawn can move to " + notation + ".");
+                return null;
+            } else {
+                System.out.println("Invalid pawn push: Ambiguous move to " + notation + ". Multiple pawns can move here.");
+                return null;
+            }
+        }
+
+        // 5. Full fileRankFileRank (e.g., "e2e4")
         if (FULL_MOVE_NOTATION_PATTERN.matcher(notation).matches()) {
             char startFileChar = notation.charAt(0);
             char startRankChar = notation.charAt(1);
@@ -248,9 +372,10 @@ public class Board {
             int startRow = 8 - Character.getNumericValue(startRankChar);
             int endCol = endFileChar - 'a';
             int endRow = 8 - Character.getNumericValue(endRankChar);
-            return new int[]{startRow, startCol, endRow, endCol};
+            return new ParsedMove(startRow, startCol, endRow, endCol);
         }
 
+        // 6. Disambiguated moves (e.g., "Nbd7", "N1d7")
         Matcher fileDisambiguatorMatcher = DISAMBIGUATED_FILE_MOVE_PATTERN.matcher(notation);
         Matcher rankDisambiguatorMatcher = DISAMBIGUATED_RANK_MOVE_PATTERN.matcher(notation);
 
@@ -291,7 +416,8 @@ public class Board {
                         }
 
                         if (disambiguatorMatches) {
-                            if (isValidMoveAttempt(sr, sc, endRow, endCol)) {
+                            ParsedMove tempParsedMove = new ParsedMove(sr, sc, endRow, endCol);
+                            if (isValidMoveAttempt(tempParsedMove)) {
                                 candidateSources.add(new int[]{sr, sc});
                             }
                         }
@@ -307,10 +433,11 @@ public class Board {
                 return null;
             } else {
                 int[] source = candidateSources.get(0);
-                return new int[]{source[0], source[1], endRow, endCol};
+                return new ParsedMove(source[0], source[1], endRow, endCol);
             }
         }
 
+        // 7. Shortened piece moves (`Nf3`)
         if (SHORTENED_PIECE_MOVE_PATTERN.matcher(notation).matches()) {
             char pieceChar = notation.charAt(0);
             char endFileChar = notation.charAt(1);
@@ -335,7 +462,8 @@ public class Board {
                 for (int sc = 0; sc < 8; sc++) {
                     Piece piece = squares[sr][sc];
                     if (piece != null && piece.getColor() == currentPlayerTurn && piece.getType() == targetPieceType) {
-                        if (isValidMoveAttempt(sr, sc, endRow, endCol)) {
+                        ParsedMove tempParsedMove = new ParsedMove(sr, sc, endRow, endCol);
+                        if (isValidMoveAttempt(tempParsedMove)) {
                             candidateSources.add(new int[]{sr, sc});
                         }
                     }
@@ -350,166 +478,109 @@ public class Board {
                 return null;
             } else {
                 int[] source = candidateSources.get(0);
-                return new int[]{source[0], source[1], endRow, endCol};
+                return new ParsedMove(source[0], source[1], endRow, endCol);
             }
         }
 
-        System.out.println("Invalid move format: '" + notation + "'. Please use 'e2e4', 'Nf3', 'Nbd7', or 'N1d7' format.");
+        System.out.println("Invalid move format: '" + notation + "'. Please use 'e2e4', 'Nf3', 'Nbd7', 'N1d7' format.");
         return null;
     }
 
     /**
      * Executes a move on the board after coordinates have been determined and passed preliminary validations.
-     * This method handles the actual board update, piece capture, promotion detection, and turn switching.
-     * @param startRow Starting row.
-     * @param startCol Starting column.
-     * @param endRow Ending row.
-     * @param endCol Ending column.
+     * @param parsedMove The ParsedMove object containing move details.
      * @return A MoveResult indicating if the move was valid, invalid, or if promotion is pending.
      */
-    public Board.MoveResult movePiece(int startRow, int startCol, int endRow, int endCol) {
-        // These checks are already done by isValidMoveAttempt, but keep for robustness if called directly
-        if (startRow < 0 || startRow >= 8 || startCol < 0 || startCol >= 8 ||
-                endRow < 0 || endRow >= 8 || endCol < 0 || endCol >= 8) {
-            System.out.println("Invalid move: Internal coordinates out of board bounds.");
-            return Board.MoveResult.INVALID;
-        }
+    public Board.MoveResult movePiece(ParsedMove parsedMove) {
+        int startRow = parsedMove.startRow;
+        int startCol = parsedMove.startCol;
+        int endRow = parsedMove.endRow;
+        int endCol = parsedMove.endCol;
 
         Piece pieceToMove = squares[startRow][startCol];
-
-        if (pieceToMove == null || pieceToMove.getColor() != currentPlayerTurn) {
-            System.out.println("Invalid move: Piece at start square is not valid for current turn.");
-            return Board.MoveResult.INVALID;
-        }
-
         Piece pieceAtEnd = squares[endRow][endCol];
-        // This check is now integrated more deeply into isValidMoveAttempt for pawn rules, but keeping it here for general clarity
-        if (pieceAtEnd != null && pieceAtEnd.getColor() == currentPlayerTurn) {
-            System.out.println("Invalid move: Cannot capture your own piece.");
+
+        if (!isValidMoveAttempt(parsedMove)) {
             return Board.MoveResult.INVALID;
         }
-
-        // --- All comprehensive checks are now inside isValidMoveAttempt ---
-        if (!isValidMoveAttempt(startRow, startCol, endRow, endCol)) {
-            // isValidMoveAttempt already prints specific error messages if it returns false
-            return Board.MoveResult.INVALID;
-        }
-
-        // --- Determine if Castling Move (after isValidMoveAttempt confirms legality) ---
-        boolean isCastlingMove = false;
-        if (pieceToMove.getType() == Piece.PieceType.KING && Math.abs(startCol - endCol) == 2 && startRow == endRow) {
-            isCastlingMove = true;
-        }
-        // --- END NEW ---
 
         boolean isEnPassantCapture = false;
         Piece capturedPawnByEnPassant = null;
         int capturedPawnByEnPassantRow = -1;
         int capturedPawnByEnPassantCol = -1;
 
-        // 1. Determine if this specific move is an En Passant capture (before any piece movement)
-        if (pieceToMove.getType() == Piece.PieceType.PAWN && Math.abs(startCol - endCol) == 1) { // Pawn making diagonal move
-            if (squares[endRow][endCol] == null) { // Landing on empty square (MUST BE FOR EN PASSANT)
-                if (enPassantTargetSquare != null && endRow == enPassantTargetSquare[0] && endCol == enPassantTargetSquare[1]) {
-                    isEnPassantCapture = true;
-                    capturedPawnByEnPassantRow = (pieceToMove.getColor() == Piece.PieceColor.WHITE) ? endRow + 1 : endRow - 1;
-                    capturedPawnByEnPassantCol = endCol;
-                    capturedPawnByEnPassant = squares[capturedPawnByEnPassantRow][capturedPawnByEnPassantCol];
-                }
+        if (pieceToMove.getType() == Piece.PieceType.PAWN && Math.abs(startCol - endCol) == 1 && squares[endRow][endCol] == null) {
+            if (enPassantTargetSquare != null && endRow == enPassantTargetSquare[0] && endCol == enPassantTargetSquare[1]) {
+                isEnPassantCapture = true;
+                capturedPawnByEnPassantRow = (pieceToMove.getColor() == Piece.PieceColor.WHITE) ? endRow + 1 : endRow - 1;
+                capturedPawnByEnPassantCol = endCol;
+                capturedPawnByEnPassant = squares[capturedPawnByEnPassantRow][capturedPawnByEnPassantCol];
             }
         }
 
-        // 2. Handle captured pieces (normal capture OR en passant capture)
         if (isEnPassantCapture) {
             if (capturedPawnByEnPassant != null && capturedPawnByEnPassant.getType() == Piece.PieceType.PAWN && capturedPawnByEnPassant.getColor() != pieceToMove.getColor()) {
-                squares[capturedPawnByEnPassantRow][capturedPawnByEnPassantCol] = null; // Remove the captured pawn
-                decrementPieceCount(capturedPawnByEnPassant.getType(), capturedPawnByEnPassant.getColor()); // Decrement its count
+                squares[capturedPawnByEnPassantRow][capturedPawnByEnPassantCol] = null;
+                decrementPieceCount(capturedPawnByEnPassant.getType(), capturedPawnByEnPassant.getColor());
                 System.out.println("En Passant capture!");
             } else {
                 System.err.println("Error: En Passant confirmed but no valid pawn to capture at " + (char)('a'+capturedPawnByEnPassantCol) + (char)('1'+(7-capturedPawnByEnPassantRow)));
                 return Board.MoveResult.INVALID;
             }
-        } else if (pieceAtEnd != null) { // Not En Passant, but a normal capture
+        } else if (pieceAtEnd != null) {
             decrementPieceCount(pieceAtEnd.getType(), pieceAtEnd.getColor());
         }
 
-        // 3. Perform the basic move (pawn or other piece)
         squares[endRow][endCol] = pieceToMove;
         squares[startRow][startCol] = null;
 
-        // --- NEW: Perform Rook move if Castling ---
-        if (isCastlingMove) {
+        if (parsedMove.isKingsideCastle || parsedMove.isQueensideCastle) {
             int rookStartCol;
             int rookEndCol;
-            if (endCol == 6) { // Kingside (O-O)
-                rookStartCol = 7; // h-file
-                rookEndCol = 5;   // f-file
-            } else { // Queenside (O-O-O)
-                rookStartCol = 0; // a-file
-                rookEndCol = 3;   // d-file
+            if (parsedMove.isKingsideCastle) {
+                rookStartCol = 7;
+                rookEndCol = 5;
+            } else {
+                rookStartCol = 0;
+                rookEndCol = 3;
             }
-            // Move the Rook
             squares[endRow][rookEndCol] = squares[endRow][rookStartCol];
             squares[endRow][rookStartCol] = null;
             System.out.println("Castling performed!");
         }
-        // --- END NEW ---
 
-        // 4. Update hasMoved flags for King and Rooks (after their potential moves, including castling)
         if (pieceToMove.getType() == Piece.PieceType.KING) {
             if (pieceToMove.getColor() == Piece.PieceColor.WHITE) whiteKingMoved = true;
             else blackKingMoved = true;
         } else if (pieceToMove.getType() == Piece.PieceType.ROOK) {
             if (pieceToMove.getColor() == Piece.PieceColor.WHITE) {
-                if (startCol == 0 && startRow == 7) whiteRookAMoved = true; // White a1 rook
-                if (startCol == 7 && startRow == 7) whiteRookHMoved = true; // White h1 rook
+                if (startCol == 0 && startRow == 7) whiteRookAMoved = true;
+                if (startCol == 7 && startRow == 7) whiteRookHMoved = true;
             } else {
-                if (startCol == 0 && startRow == 0) blackRookAMoved = true; // Black a8 rook
-                if (startCol == 7 && startRow == 0) blackRookHMoved = true; // Black h8 rook
+                if (startCol == 0 && startRow == 0) blackRookAMoved = true;
+                if (startCol == 7 && startRow == 0) blackRookHMoved = true;
             }
         }
 
+        boolean isPromotionMove = (pieceToMove.getType() == Piece.PieceType.PAWN &&
+                ((pieceToMove.getColor() == Piece.PieceColor.WHITE && endRow == 0) ||
+                        (pieceToMove.getColor() == Piece.PieceColor.BLACK && endRow == 7))); // Typo fixed: pieceToToMove -> pieceToMove
 
-        // 5. Check for Pawn Promotion (after the pawn has officially moved)
-        boolean isPromotion = false;
-        if (pieceToMove.getType() == Piece.PieceType.PAWN) {
-            if ((pieceToMove.getColor() == Piece.PieceColor.WHITE && endRow == 0) ||
-                    (pieceToMove.getColor() == Piece.PieceColor.BLACK && endRow == 7)) {
-                isPromotion = true;
-            }
-        }
-
-        // 6. Update En Passant target for the *next* turn (based on *this* move)
-        int rowDiffFromStart = Math.abs(startRow - endRow);
-        if (pieceToMove.getType() == Piece.PieceType.PAWN && rowDiffFromStart == 2) { // Pawn moved exactly two squares
-            if (pieceToMove.getColor() == Piece.PieceColor.WHITE) { // White pawn moved from rank 2 to 4
-                enPassantTargetSquare = new int[]{endRow + 1, endCol}; // Target is square behind it (rank 3 for White)
-            } else { // Black pawn moved from rank 7 to 5
-                enPassantTargetSquare = new int[]{endRow - 1, endCol}; // Target is square behind it (rank 6 for Black)
+        if (isPromotionMove) {
+            if (parsedMove.promotionType != null) {
+                finalizePromotion(endRow, endCol, parsedMove.promotionType);
+                return Board.MoveResult.VALID;
+            } else {
+                System.out.println(pieceToMove.getColor() + " Pawn reached promotion square " + (char)('a'+endCol) + (char)('1'+(7-endRow)) + "!");
+                return Board.MoveResult.PROMOTION_PENDING;
             }
         } else {
-            enPassantTargetSquare = null; // Clear if not a two-square pawn push
-        }
-
-        // 7. Return appropriate MoveResult. DO NOT switch turn yet if PROMOTION_PENDING.
-        if (isPromotion) {
-            System.out.println(pieceToMove.getColor() + " Pawn reached promotion square " + (char)('a'+endCol) + (char)('1'+(7-endRow)) + "!");
-            return Board.MoveResult.PROMOTION_PENDING;
-        } else {
-            // If no promotion, switch turn as usual
             switchTurn();
             System.out.println("Move successful! Now it's " + currentPlayerTurn + "'s turn.");
             return Board.MoveResult.VALID;
         }
     }
 
-    /**
-     * Finalizes a pawn promotion by replacing the pawn with the chosen piece.
-     * This method is called by Main after the player chooses a promotion piece.
-     * @param promotionRow The row where the pawn promoted.
-     * @param promotionCol The column where the pawn promoted.
-     * @param chosenType The Piece.PieceType to promote to.
-     */
     public void finalizePromotion(int promotionRow, int promotionCol, Piece.PieceType chosenType) {
         Piece promotingPawn = squares[promotionRow][promotionCol];
         if (promotingPawn == null || promotingPawn.getType() != Piece.PieceType.PAWN) {
@@ -518,26 +589,18 @@ public class Board {
         }
 
         decrementPieceCount(Piece.PieceType.PAWN, promotingPawn.getColor());
-
         squares[promotionRow][promotionCol] = new Piece(chosenType, promotingPawn.getColor());
-
         incrementPieceCount(chosenType, promotingPawn.getColor());
-
         System.out.println(promotingPawn.getColor() + " Pawn promoted to " + chosenType + "!");
-
-        // After promotion is finalized, switch the turn
         switchTurn();
         System.out.println("Turn switched to " + currentPlayerTurn + ".");
     }
 
-
     private boolean isPathClear(int startRow, int startCol, int endRow, int endCol) {
         int rowDir = Integer.compare(endRow, startRow);
         int colDir = Integer.compare(endCol, startCol);
-
         int currentRow = startRow + rowDir;
         int currentCol = startCol + colDir;
-
         while (currentRow != endRow || currentCol != endCol) {
             if (squares[currentRow][currentCol] != null) {
                 return false;
@@ -548,7 +611,11 @@ public class Board {
         return true;
     }
 
-    private boolean isValidPieceMove(int startRow, int startCol, int endRow, int endCol) {
+    private boolean isValidPieceMove(ParsedMove parsedMove) {
+        int startRow = parsedMove.startRow;
+        int startCol = parsedMove.startCol;
+        int endRow = parsedMove.endRow;
+        int endCol = parsedMove.endCol;
         Piece piece = squares[startRow][startCol];
         if (piece == null) return false;
 
@@ -559,17 +626,15 @@ public class Board {
 
         switch (piece.getType()) {
             case PAWN:
-                // Straight move (forward 1 or 2 squares)
                 if (colDiff == 0) {
                     if (piece.getColor() == Piece.PieceColor.WHITE && rowDir == -1) {
                         if (rowDiff == 1) return true;
-                        if (rowDiff == 2 && startRow == 6 && squares[startRow-1][startCol] == null) return true; // Path check for 2-square move
+                        if (rowDiff == 2 && startRow == 6 && squares[startRow-1][startCol] == null) return true;
                     } else if (piece.getColor() == Piece.PieceColor.BLACK && rowDir == 1) {
                         if (rowDiff == 1) return true;
-                        if (rowDiff == 2 && startRow == 1 && squares[startRow+1][startCol] == null) return true; // Path check for 2-square move
+                        if (rowDiff == 2 && startRow == 1 && squares[startRow+1][startCol] == null) return true;
                     }
                 }
-                // Diagonal attack (forward 1 square, column changes by 1)
                 else if (colDiff == 1 && rowDiff == 1) {
                     if (piece.getColor() == Piece.PieceColor.WHITE && rowDir == -1) return true;
                     if (piece.getColor() == Piece.PieceColor.BLACK && rowDir == 1) return true;
@@ -598,17 +663,12 @@ public class Board {
                 return false;
 
             case KING:
-                // Normal 1-square king move
                 if (rowDiff <= 1 && colDiff <= 1 && (rowDiff > 0 || colDiff > 0)) {
                     return true;
                 }
-                // --- Castling geometric check ---
-                // King moves 2 squares horizontally, on its home rank
                 if (rowDiff == 0 && colDiff == 2) {
-                    // Call isValidCastlingAttempt to check all specific castling rules.
                     return isValidCastlingAttempt(startRow, startCol, endRow, endCol);
                 }
-                // --- END Castling geometric check ---
                 return false;
 
             default:
@@ -652,9 +712,9 @@ public class Board {
                         }
                     } else {
                         Piece tempKing = squares[kingRow][kingCol];
-                        squares[kingRow][kingCol] = null; // Temporarily remove King for isValidPieceMove check
-                        boolean canAttackKing = isValidPieceMove(r, c, kingRow, kingCol);
-                        squares[kingRow][kingCol] = tempKing; // Restore King
+                        squares[kingRow][kingCol] = null;
+                        boolean canAttackKing = isValidPieceMove(new ParsedMove(r, c, kingRow, kingCol));
+                        squares[kingRow][kingCol] = tempKing;
                         if (canAttackKing) {
                             return true;
                         }
@@ -665,42 +725,29 @@ public class Board {
         return false;
     }
 
-    /**
-     * Checks all the specific rules for castling beyond basic King movement geometry.
-     * @param kingStartRow King's starting row (must be 0 or 7).
-     * @param kingStartCol King's starting column (must be 4).
-     * @param kingEndRow King's ending row (must be same as startRow).
-     * @param kingEndCol King's ending column (2 for Queenside, 6 for Kingside).
-     * @return true if castling is completely legal, false otherwise.
-     */
     private boolean isValidCastlingAttempt(int kingStartRow, int kingStartCol, int kingEndRow, int kingEndCol) {
-        // 1. King must be on its home rank
-        if (kingStartRow != 0 && kingStartRow != 7) return false;
-        // King must move exactly 2 squares horizontally on the same rank (already checked by caller in isValidPieceMove)
+        if (kingStartCol != 4 || (kingStartRow != 0 && kingStartRow != 7)) {
+            System.out.println("Invalid Castling: King not in original e-file or home rank.");
+            return false;
+        }
         if (Math.abs(kingEndCol - kingStartCol) != 2 || kingStartRow != kingEndRow) return false;
 
-        // 2. Check if King has moved
         if (currentPlayerTurn == Piece.PieceColor.WHITE) {
             if (whiteKingMoved) { System.out.println("Invalid Castling: White King has moved."); return false; }
-        } else { // Black
+        } else {
             if (blackKingMoved) { System.out.println("Invalid Castling: Black King has moved."); return false; }
         }
 
-        // 3. Determine Rook's original position and check if it has moved
         int rookStartCol;
-        int rookTargetCol; // The square the rook moves to
-        boolean isKingside = (kingEndCol == 6); // g-file for King's end implies Kingside castling
+        boolean isKingside = (kingEndCol == 6);
 
         if (isKingside) {
-            rookStartCol = 7; // h-file
-            rookTargetCol = 5; // f-file
-        } else { // Queenside (kingEndCol == 2 for c-file)
-            rookStartCol = 0; // a-file
-            rookTargetCol = 3; // d-file
+            rookStartCol = 7;
+        } else {
+            rookStartCol = 0;
         }
-        int rookRow = kingStartRow; // Rook is on the same rank as King
+        int rookRow = kingStartRow;
 
-        // Check if the relevant Rook exists on its original square and hasn't moved
         Piece rook = squares[rookRow][rookStartCol];
         if (rook == null || rook.getType() != Piece.PieceType.ROOK || rook.getColor() != currentPlayerTurn) {
             System.out.println("Invalid Castling: No " + currentPlayerTurn + " Rook at original " + (char)('a'+rookStartCol) + (char)('1'+(7-rookRow)) + ".");
@@ -709,69 +756,54 @@ public class Board {
         if (currentPlayerTurn == Piece.PieceColor.WHITE) {
             if (isKingside && whiteRookHMoved) { System.out.println("Invalid Castling: White Kingside Rook has moved."); return false; }
             if (!isKingside && whiteRookAMoved) { System.out.println("Invalid Castling: White Queenside Rook has moved."); return false; }
-        } else { // Black
+        } else {
             if (isKingside && blackRookHMoved) { System.out.println("Invalid Castling: Black Kingside Rook has moved."); return false; }
             if (!isKingside && blackRookAMoved) { System.out.println("Invalid Castling: Black Queenside Rook has moved."); return false; }
         }
 
-        // 4. Check if King is currently in check
         if (isKingInCheck(currentPlayerTurn)) {
             System.out.println("Invalid Castling: King is currently in check.");
             return false;
         }
 
-        // 5. Check for obstructions between King and Rook
-        // The path from King's initial square to Rook's initial square
         if (!isPathClear(kingStartRow, kingStartCol, rookRow, rookStartCol)) {
             System.out.println("Invalid Castling: Path between King and Rook is blocked.");
             return false;
         }
 
-        // 6. Check if squares King passes through or lands on are attacked
-        // King's original square (e.g., e1), intermediate square (f1 for kingside, d1 for queenside), and final square (g1 for kingside, c1 for queenside)
-        int intermediateKingCol = kingStartCol + Integer.compare(kingEndCol, kingStartCol); // King's first step direction
+        int intermediateKingCol = kingStartCol + Integer.compare(kingEndCol, kingStartCol);
 
-        // Simulate King's movement step-by-step and check for check
-        // We need to simulate on a temporary copy or use the make/undo strategy.
-        // For isValidMoveAttempt, we use make/undo on the actual board. Let's do similar here.
-        // The 'this.squares' will be the board from isValidMoveAttempt's simulation
+        Piece originalKingPiece = squares[kingStartRow][kingStartCol];
+        Piece originalRookPiece = squares[rookRow][rookStartCol];
+        Piece pieceAtIntermediateKingSquare = squares[kingStartRow][intermediateKingCol];
+        Piece pieceAtFinalKingSquare = squares[kingEndRow][kingEndCol];
 
-        Piece originalKing = squares[kingStartRow][kingStartCol];
-        Piece originalRook = squares[rookRow][rookStartCol];
-
-        // --- Simulate King moving to intermediate square (1st step) ---
-        squares[kingStartRow][kingStartCol] = null; // Temporarily remove King from start square
-        squares[kingStartRow][intermediateKingCol] = originalKing; // Simulate King at intermediate square
+        squares[kingStartRow][kingStartCol] = null;
+        squares[kingStartRow][intermediateKingCol] = originalKingPiece;
 
         if (isKingInCheck(currentPlayerTurn)) {
             System.out.println("Invalid Castling: King passes through an attacked square (" + (char)('a'+intermediateKingCol) + (char)('1'+(7-kingStartRow)) + ").");
-            // Restore board state before returning
-            squares[kingStartRow][kingStartCol] = originalKing;
-            squares[kingStartRow][intermediateKingCol] = null;
+            squares[kingStartRow][kingStartCol] = originalKingPiece;
+            squares[kingStartRow][intermediateKingCol] = pieceAtIntermediateKingSquare;
             return false;
         }
 
-        // --- Simulate King moving to final square (2nd step) ---
-        // King is already at intermediate. Now move it to final for next check.
-        squares[kingStartRow][intermediateKingCol] = null; // Clear intermediate square
-        squares[kingEndRow][kingEndCol] = originalKing;    // Simulate King at final square
+        squares[kingStartRow][intermediateKingCol] = pieceAtIntermediateKingSquare;
+        squares[kingEndRow][kingEndCol] = originalKingPiece;
 
         if (isKingInCheck(currentPlayerTurn)) {
             System.out.println("Invalid Castling: King lands in an attacked square (" + (char)('a'+kingEndCol) + (char)('1'+(7-kingEndRow)) + ").");
-            // Restore board state before returning
-            squares[kingStartRow][kingStartCol] = originalKing;
-            squares[kingEndRow][kingEndCol] = null;
+            squares[kingStartRow][kingStartCol] = originalKingPiece;
+            squares[kingEndRow][kingEndCol] = pieceAtFinalKingSquare;
             return false;
         }
 
-        // --- FINAL RESTORATION FOR VALIDATION ---
-        // If it reaches here, the move is valid for castling.
-        // Restore the board completely before exiting this validation method.
-        squares[kingStartRow][kingStartCol] = originalKing;
-        squares[kingEndRow][kingEndCol] = null; // Ensure final King square is clear as it was when method started (for simulation)
-        squares[rookRow][rookStartCol] = originalRook; // Ensure original rook is there
+        squares[kingStartRow][kingStartCol] = originalKingPiece;
+        squares[kingEndRow][kingEndCol] = pieceAtFinalKingSquare;
+        squares[kingStartRow][intermediateKingCol] = pieceAtIntermediateKingSquare;
+        squares[rookRow][rookStartCol] = originalRookPiece;
 
-        return true; // All castling conditions met
+        return true;
     }
 
 
@@ -785,20 +817,23 @@ public class Board {
                 if (piece != null && piece.getColor() == currentPlayerTurn) {
                     for (int endRow = 0; endRow < 8; endRow++) {
                         for (int endCol = 0; endCol < 8; endCol++) {
-                            if (isValidMoveAttempt(startRow, startCol, endRow, endCol)) {
+                            ParsedMove tempMove = new ParsedMove(startRow, startCol, endRow, endCol);
+                            if (piece.getType() == Piece.PieceType.KING && startRow == endRow && Math.abs(startCol - endCol) == 2) {
+                                tempMove.isKingsideCastle = (endCol == 6);
+                                tempMove.isQueensideCastle = (endCol == 2);
+                            }
+
+                            if (isValidMoveAttempt(tempMove)) {
                                 char startFile = (char) ('a' + startCol);
                                 char startRank = (char) ('1' + (7 - startRow));
                                 char endFile = (char) ('a' + endCol);
                                 char endRank = (char) ('1' + (7 - endRow));
 
-                                // --- NEW: Handle Castling Notation Generation for AI ---
-                                if (piece.getType() == Piece.PieceType.KING && Math.abs(startCol - endCol) == 2 && startRow == endRow) {
-                                    if (endCol == 6) legalMoves.add("O-O"); // Kingside
-                                    else legalMoves.add("O-O-O"); // Queenside
-                                } else {
+                                if (tempMove.isKingsideCastle) { legalMoves.add("O-O"); }
+                                else if (tempMove.isQueensideCastle) { legalMoves.add("O-O-O"); }
+                                else {
                                     legalMoves.add("" + startFile + startRank + endFile + endRank);
                                 }
-                                // --- END NEW ---
                             }
                         }
                     }
@@ -815,19 +850,24 @@ public class Board {
         return chosenMove;
     }
 
-    private boolean isValidMoveAttempt(int startRow, int startCol, int endRow, int endCol) {
+    private boolean isValidMoveAttempt(ParsedMove parsedMove) {
+        int startRow = parsedMove.startRow;
+        int startCol = parsedMove.startCol;
+        int endRow = parsedMove.endRow;
+        int endCol = parsedMove.endCol;
+
+        Piece pieceToMove = squares[startRow][startCol];
+        Piece targetPiece = squares[endRow][endCol];
+
         if (startRow < 0 || startRow >= 8 || startCol < 0 || startCol >= 8 ||
                 endRow < 0 || endRow >= 8 || endCol < 0 || endCol >= 8) {
             return false;
         }
 
-        Piece pieceToMove = squares[startRow][startCol];
-
         if (pieceToMove == null || pieceToMove.getColor() != currentPlayerTurn) {
             return false;
         }
 
-        Piece targetPiece = squares[endRow][endCol];
         boolean isTargetEmpty = (targetPiece == null);
         boolean isTargetOccupiedByOpponent = (targetPiece != null && targetPiece.getColor() != currentPlayerTurn);
         boolean isTargetOccupiedByOwn = (targetPiece != null && targetPiece.getColor() == currentPlayerTurn);
@@ -836,49 +876,39 @@ public class Board {
             return false;
         }
 
-        // --- Geometric Move Check ---
-        if (!isValidPieceMove(startRow, startCol, endRow, endCol)) {
+        if (!isValidPieceMove(parsedMove)) {
             return false;
         }
-        // --- END Geometric Move Check ---
 
-        // --- Specific Occupation Rules (after geometry is confirmed) ---
-        if (pieceToMove.getType() == Piece.PieceType.PAWN) {
-            if (startCol == endCol) { // Straight pawn move: MUST be empty
-                if (!isTargetEmpty) return false;
-            } else { // Diagonal pawn move: MUST be capture OR En Passant
-                boolean isEnPassantCandidate = (enPassantTargetSquare != null &&
-                        endRow == enPassantTargetSquare[0] &&
-                        endCol == enPassantTargetSquare[1]);
+        if (!parsedMove.isKingsideCastle && !parsedMove.isQueensideCastle) {
+            if (pieceToMove.getType() == Piece.PieceType.PAWN) {
+                if (startCol == endCol) {
+                    if (!isTargetEmpty) return false;
+                } else {
+                    boolean isEnPassantCandidate = (enPassantTargetSquare != null &&
+                            endRow == enPassantTargetSquare[0] &&
+                            endCol == enPassantTargetSquare[1]);
 
-                if (isEnPassantCandidate) {
-                    if (pieceToMove.getColor() == Piece.PieceColor.WHITE && startRow != 3) return false; // White on 5th rank
-                    if (pieceToMove.getColor() == Piece.PieceColor.BLACK && startRow != 4) return false; // Black on 4th rank
-                } else { // Normal diagonal pawn move, must be a capture
-                    if (!isTargetOccupiedByOpponent) return false;
+                    if (isEnPassantCandidate) {
+                        if (pieceToMove.getColor() == Piece.PieceColor.WHITE && startRow != 3) return false;
+                        if (pieceToMove.getColor() == Piece.PieceColor.BLACK && startRow != 4) return false;
+                    } else {
+                        if (!isTargetOccupiedByOpponent) return false;
+                    }
                 }
             }
-        } else { // For all non-pawn pieces
-            // Occupation checks handled by `isTargetOccupiedByOwn` above.
-            // If target is empty, valid. If target has opponent piece, valid capture.
         }
-        // --- END Specific Occupation Rules ---
 
-
-        // --- Self-Check Validation Logic (CRUCIAL) ---
-        // This part also handles Castling's King-path-through-check validation by temporarily changing the board.
-
-        // Save original board state for undoing temporary move
         Piece originalStartPiece = squares[startRow][startCol];
         Piece originalEndPiece = squares[endRow][endCol];
         Piece originalEnPassantCapturedPawn = null;
+        Piece originalRookPiece = null;
+        int rookOriginalCol = -1;
+        int rookSimulatedEndCol = -1;
 
-        // Perform move temporarily on board for simulation
-        // For castling, this initial move is the King's 2-square step. isValidCastlingAttempt will do further simulations.
         squares[endRow][endCol] = originalStartPiece;
         squares[startRow][startCol] = null;
 
-        // If the simulated move is an En Passant capture, remove the captured pawn temporarily
         if (pieceToMove.getType() == Piece.PieceType.PAWN && Math.abs(startCol - endCol) == 1 && isTargetEmpty && enPassantTargetSquare != null && endRow == enPassantTargetSquare[0] && endCol == enPassantTargetSquare[1]) {
             int capturedPawnRow = (originalStartPiece.getColor() == Piece.PieceColor.WHITE) ? endRow + 1 : endRow - 1;
             int capturedPawnCol = endCol;
@@ -886,16 +916,28 @@ public class Board {
             squares[capturedPawnRow][capturedPawnCol] = null;
         }
 
+        if (parsedMove.isKingsideCastle || parsedMove.isQueensideCastle) {
+            rookOriginalCol = parsedMove.isKingsideCastle ? 7 : 0;
+            rookSimulatedEndCol = parsedMove.isKingsideCastle ? 5 : 3;
+            originalRookPiece = squares[startRow][rookOriginalCol];
+            squares[endRow][rookSimulatedEndCol] = originalRookPiece;
+            squares[startRow][rookOriginalCol] = null;
+        }
+
         boolean isKingInCheckAfterMove = isKingInCheck(currentPlayerTurn);
 
-        // Undo the temporary move to restore the board state
         squares[startRow][startCol] = originalStartPiece;
         squares[endRow][endCol] = originalEndPiece;
-        if (enPassantTargetSquare != null && originalEnPassantCapturedPawn != null) {
+        if (originalEnPassantCapturedPawn != null) {
             int capturedPawnRow = (originalStartPiece.getColor() == Piece.PieceColor.WHITE) ? endRow + 1 : endRow - 1;
             int capturedPawnCol = endCol;
             squares[capturedPawnRow][capturedPawnCol] = originalEnPassantCapturedPawn;
         }
+        if (parsedMove.isKingsideCastle || parsedMove.isQueensideCastle) {
+            squares[startRow][rookOriginalCol] = originalRookPiece;
+            squares[endRow][rookSimulatedEndCol] = null;
+        }
+
 
         if (isKingInCheckAfterMove) {
             return false;
@@ -950,4 +992,20 @@ public class Board {
         System.out.println("   A   B   C   D   E   F   G   H");
         System.out.println("Current Turn: " + currentPlayerTurn);
     }
+
+    /**
+     * Resets all castling flags to false. Useful for test setup.
+     */
+    public void resetCastlingFlags() {
+        whiteKingMoved = false;
+        blackKingMoved = false;
+        whiteRookAMoved = false;
+        whiteRookHMoved = false;
+        blackRookAMoved = false;
+        blackRookHMoved = false;
+    }
 }
+
+
+
+
