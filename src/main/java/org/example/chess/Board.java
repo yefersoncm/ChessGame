@@ -24,26 +24,35 @@ public class Board {
     private boolean blackRookAMoved = false;
     private boolean blackRookHMoved = false;
 
-
-    private static final Pattern PAWN_PUSH_NOTATION_PATTERN = Pattern.compile("^[a-h][1-8]$");
-    private static final Pattern PAWN_CAPTURE_NOTATION_PATTERN = Pattern.compile("^[a-h]x[a-h][1-8]$");
     private static final Pattern FULL_MOVE_NOTATION_PATTERN = Pattern.compile("^[a-h][1-8][a-h][1-8]$");
     private static final Pattern DISAMBIGUATED_FILE_MOVE_PATTERN = Pattern.compile("^[NBRQK][a-h][a-h][1-8]$");
     private static final Pattern DISAMBIGUATED_RANK_MOVE_PATTERN = Pattern.compile("^[NBRQK][1-8][a-h][1-8]$");
     private static final Pattern SHORTENED_PIECE_MOVE_PATTERN = Pattern.compile("^[NBRQK][a-h][1-8]$");
 
     private static final Pattern PIECE_PLACEMENT_PATTERN = Pattern.compile("^[NBRQKPRQnbrqkprq][a-h][1-8]$");
-
+    // Inside your Board class, near the other Pattern declarations
+    private static final Pattern PAWN_PUSH_NOTATION_PATTERN = Pattern.compile("^[a-h][1-8]$");
+    private static final Pattern PAWN_CAPTURE_NOTATION_PATTERN = Pattern.compile("^[a-h]x[a-h][1-8]$");
     private static final Pattern CASTLE_KINGSIDE_PATTERN = Pattern.compile("O-O|0-0");
     private static final Pattern CASTLE_QUEENSIDE_PATTERN = Pattern.compile("O-O-O|0-0-0");
-
-    // --- NEW: Promotion Notation Pattern (e.g., "e7e8Q") ---
     private static final Pattern PROMOTION_NOTATION_PATTERN = Pattern.compile("^[a-h][1-8][a-h][1-8][NBRQ]$");
 
     public enum MoveResult {
         VALID,
         INVALID,
         PROMOTION_PENDING
+    }
+
+    // --- NEW: Piece Values for AI Evaluation ---
+    private static final Map<Piece.PieceType, Integer> PIECE_VALUES;
+    static {
+        PIECE_VALUES = new HashMap<>();
+        PIECE_VALUES.put(Piece.PieceType.PAWN, 1);
+        PIECE_VALUES.put(Piece.PieceType.KNIGHT, 3);
+        PIECE_VALUES.put(Piece.PieceType.BISHOP, 3);
+        PIECE_VALUES.put(Piece.PieceType.ROOK, 5);
+        PIECE_VALUES.put(Piece.PieceType.QUEEN, 9);
+        PIECE_VALUES.put(Piece.PieceType.KING, 100); // King's value is high but not infinite, as it can be captured
     }
 
     public Board() {
@@ -217,57 +226,41 @@ public class Board {
         if (parsedMoveDetails == null) {
             return Board.MoveResult.INVALID;
         }
-        return movePiece(parsedMoveDetails); // Pass the ParsedMove object
+        return movePiece(parsedMoveDetails);
     }
 
-    /**
-     * This method is public so Main.java can call it to re-parse move strings
-     * for details like promotion square coordinates.
-     * @param notation The algebraic notation string.
-     * @return A ParsedMove object with move details, or null if invalid/ambiguous.
-     */
     public ParsedMove parseAlgebraicNotation(String notation) {
         return parseAlgebraicNotationInternal(notation);
     }
 
-    /**
-     * Internal parsing method now returns a ParsedMove object.
-     * This method performs the actual parsing logic.
-     */
     private ParsedMove parseAlgebraicNotationInternal(String notation) {
         if (notation == null || notation.isEmpty()) {
             return null;
         }
 
-        // --- Order of parsing is crucial here (most specific to most general) ---
-
-        // 1. Castling Notation First (these generate ParsedMove with castling flags)
         boolean isKingsideCastleNotation = CASTLE_KINGSIDE_PATTERN.matcher(notation).matches();
         boolean isQueensideCastleNotation = CASTLE_QUEENSIDE_PATTERN.matcher(notation).matches();
 
         if (isKingsideCastleNotation || isQueensideCastleNotation) {
             int kingStartRow = (currentPlayerTurn == Piece.PieceColor.WHITE) ? 7 : 0;
             int kingStartCol = 4; // e-file
-
-            int kingEndCol = isKingsideCastleNotation ? 6 : 2; // g-file for Kingside, c-file for Queenside
+            int kingEndCol = isKingsideCastleNotation ? 6 : 2;
 
             return new ParsedMove(kingStartRow, kingStartCol, kingStartRow, kingEndCol, isKingsideCastleNotation, isQueensideCastleNotation);
         }
 
-        // 2. Promotion Notation (e.g., "e7e8Q")
         if (PROMOTION_NOTATION_PATTERN.matcher(notation).matches()) {
             char startFileChar = notation.charAt(0);
             char startRankChar = notation.charAt(1);
             char endFileChar = notation.charAt(2);
             char endRankChar = notation.charAt(3);
-            char promotedPieceChar = notation.charAt(4); // Last char is promotion type
+            char promotedPieceChar = notation.charAt(4);
 
             int startCol = startFileChar - 'a';
             int startRow = 8 - Character.getNumericValue(startRankChar);
             int endCol = endFileChar - 'a';
             int endRow = 8 - Character.getNumericValue(endRankChar);
 
-            // Basic validation for promotion context in notation parsing
             Piece pieceAtStart = squares[startRow][startCol];
             if (pieceAtStart == null || pieceAtStart.getType() != Piece.PieceType.PAWN || pieceAtStart.getColor() != currentPlayerTurn) {
                 System.out.println("Invalid promotion move: No pawn of your color at starting square " + startFileChar + startRankChar + ".");
@@ -292,7 +285,6 @@ public class Board {
             return parsedMove;
         }
 
-        // 3. Pawn Capture Notation (e.g., "exd5")
         if (PAWN_CAPTURE_NOTATION_PATTERN.matcher(notation).matches()) {
             char startFileChar = notation.charAt(0);
             char endFileChar = notation.charAt(2);
@@ -304,9 +296,9 @@ public class Board {
 
             int startRow;
             if (currentPlayerTurn == Piece.PieceColor.WHITE) {
-                startRow = endRow + 1; // White pawn captures from rank below
-            } else { // Black
-                startRow = endRow - 1; // Black pawn captures from rank above
+                startRow = endRow + 1;
+            } else {
+                startRow = endRow - 1;
             }
 
             Piece pieceAtStart = squares[startRow][startCol];
@@ -318,7 +310,6 @@ public class Board {
             return new ParsedMove(startRow, startCol, endRow, endCol);
         }
 
-        // 4. Pawn Push Notation (e.g., "e4")
         if (PAWN_PUSH_NOTATION_PATTERN.matcher(notation).matches()) {
             char endFileChar = notation.charAt(0);
             char endRankChar = notation.charAt(1);
@@ -361,7 +352,6 @@ public class Board {
             }
         }
 
-        // 5. Full fileRankFileRank (e.g., "e2e4")
         if (FULL_MOVE_NOTATION_PATTERN.matcher(notation).matches()) {
             char startFileChar = notation.charAt(0);
             char startRankChar = notation.charAt(1);
@@ -375,7 +365,6 @@ public class Board {
             return new ParsedMove(startRow, startCol, endRow, endCol);
         }
 
-        // 6. Disambiguated moves (e.g., "Nbd7", "N1d7")
         Matcher fileDisambiguatorMatcher = DISAMBIGUATED_FILE_MOVE_PATTERN.matcher(notation);
         Matcher rankDisambiguatorMatcher = DISAMBIGUATED_RANK_MOVE_PATTERN.matcher(notation);
 
@@ -437,7 +426,6 @@ public class Board {
             }
         }
 
-        // 7. Shortened piece moves (`Nf3`)
         if (SHORTENED_PIECE_MOVE_PATTERN.matcher(notation).matches()) {
             char pieceChar = notation.charAt(0);
             char endFileChar = notation.charAt(1);
@@ -482,7 +470,7 @@ public class Board {
             }
         }
 
-        System.out.println("Invalid move format: '" + notation + "'. Please use 'e2e4', 'Nf3', 'Nbd7', 'N1d7' format.");
+        System.out.println("Invalid move format: '" + notation + "'. Please use 'e2e4', 'Nf3', 'Nbd7', or 'N1d7' format.");
         return null;
     }
 
@@ -499,6 +487,11 @@ public class Board {
 
         Piece pieceToMove = squares[startRow][startCol];
         Piece pieceAtEnd = squares[endRow][endCol];
+
+        if (pieceToMove == null || pieceToMove.getColor() != currentPlayerTurn) {
+            System.out.println("Invalid move: Piece at start square is not valid for current turn.");
+            return Board.MoveResult.INVALID;
+        }
 
         if (!isValidMoveAttempt(parsedMove)) {
             return Board.MoveResult.INVALID;
@@ -535,15 +528,8 @@ public class Board {
         squares[startRow][startCol] = null;
 
         if (parsedMove.isKingsideCastle || parsedMove.isQueensideCastle) {
-            int rookStartCol;
-            int rookEndCol;
-            if (parsedMove.isKingsideCastle) {
-                rookStartCol = 7;
-                rookEndCol = 5;
-            } else {
-                rookStartCol = 0;
-                rookEndCol = 3;
-            }
+            int rookStartCol = parsedMove.isKingsideCastle ? 7 : 0;
+            int rookEndCol = parsedMove.isKingsideCastle ? 5 : 3;
             squares[endRow][rookEndCol] = squares[endRow][rookStartCol];
             squares[endRow][rookStartCol] = null;
             System.out.println("Castling performed!");
@@ -564,7 +550,7 @@ public class Board {
 
         boolean isPromotionMove = (pieceToMove.getType() == Piece.PieceType.PAWN &&
                 ((pieceToMove.getColor() == Piece.PieceColor.WHITE && endRow == 0) ||
-                        (pieceToMove.getColor() == Piece.PieceColor.BLACK && endRow == 7))); // Typo fixed: pieceToToMove -> pieceToMove
+                        (pieceToMove.getColor() == Piece.PieceColor.BLACK && endRow == 7)));
 
         if (isPromotionMove) {
             if (parsedMove.promotionType != null) {
@@ -595,6 +581,7 @@ public class Board {
         switchTurn();
         System.out.println("Turn switched to " + currentPlayerTurn + ".");
     }
+
 
     private boolean isPathClear(int startRow, int startCol, int endRow, int endCol) {
         int rowDir = Integer.compare(endRow, startRow);
@@ -697,6 +684,7 @@ public class Board {
 
         int kingRow = kingPos[0];
         int kingCol = kingPos[1];
+
         Piece.PieceColor opponentColor = (kingColor == Piece.PieceColor.WHITE) ? Piece.PieceColor.BLACK : Piece.PieceColor.WHITE;
 
         for (int r = 0; r < 8; r++) {
@@ -1005,7 +993,3 @@ public class Board {
         blackRookHMoved = false;
     }
 }
-
-
-
-
